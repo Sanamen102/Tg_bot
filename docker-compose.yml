@@ -1,4 +1,18 @@
 services:
+  # SOCKS5-мост до Telegram через XRay (VLESS + Reality), например до Amnezia-сервера.
+  # Настройка: cp xray/config.json.example xray/config.json и заполнить свои значения.
+  # Бот ходит на него по внутренней сети: TELEGRAM_PROXY=socks5://xray:1080
+  xray:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: homepilot-xray
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./xray/config.json:/etc/xray/config.json:ro
+    ports:
+      # Только для локальной отладки с хоста (curl --socks5-hostname 127.0.0.1:1080)
+      - "127.0.0.1:1080:1080"
+
   homepilot:
     build: .
     container_name: homepilot

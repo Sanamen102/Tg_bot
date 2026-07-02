@@ -1,0 +1,41 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": { "udp": true }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "АДРЕС_ТВОЕГО_AMNEZIA_СЕРВЕРА",
+            "port": 443,
+            "users": [
+              {
+                "id": "UUID_ИЗ_ССЫЛКИ_VLESS",
+                "flow": "xtls-rprx-vision",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "SNI_ИЗ_ССЫЛКИ",
+          "publicKey": "PBK_ИЗ_ССЫЛКИ",
+          "shortId": "SID_ИЗ_ССЫЛКИ",
+          "fingerprint": "chrome"
+        }
+      }
+    }
+  ]
+}

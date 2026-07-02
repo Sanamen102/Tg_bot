@@ -103,16 +103,46 @@ python -m app.main
 curl -m 10 -sS https://api.telegram.org/ -o /dev/null -w "%{http_code}\n"
 ```
 
-Если таймаут — провайдер блокирует Telegram API. Боту нужен прокси в `.env`:
+Если таймаут — провайдер блокирует Telegram API. Боту нужен прокси в `.env`.
+Прокси используется только для Telegram — Immich и Jellyfin ходят напрямую по локальной сети.
+
+### Вариант 1: свой XRay/VLESS-сервер (Amnezia и т.п.) — рекомендуется
+
+В compose уже есть сервис `xray` — клиент, который подключается к вашему серверу
+по VLESS + Reality (маскируется под TLS, DPI его не режет) и отдаёт боту SOCKS5
+внутри докерной сети.
+
+1. Получите ссылку `vless://...` вашего сервера. В приложении AmneziaVPN:
+   выберите сервер → «Поделиться» → протокол **XRay** → там будет ссылка вида:
+   ```
+   vless://UUID@1.2.3.4:443?security=reality&pbk=ПУБЛИЧНЫЙ_КЛЮЧ&fp=chrome&sni=САЙТ&sid=КОРОТКИЙ_ID&flow=xtls-rprx-vision#имя
+   ```
+2. Создайте конфиг клиента и перенесите значения из ссылки:
+   ```bash
+   cp xray/config.json.example xray/config.json
+   nano xray/config.json
+   ```
+   Соответствие полей: `UUID` → `id`, адрес и порт → `address`/`port`,
+   `pbk=` → `publicKey`, `sni=` → `serverName`, `sid=` → `shortId`,
+   `fp=` → `fingerprint`. Если в ссылке нет `flow=` — удалите строку `"flow"` из конфига.
+3. В `.env`: `TELEGRAM_PROXY=socks5://xray:1080`
+4. `sudo docker compose up -d --build`, затем проверка с хоста:
+   ```bash
+   curl -m 10 --socks5-hostname 127.0.0.1:1080 -sS https://api.telegram.org/ -o /dev/null -w "%{http_code}\n"
+   ```
+   Любой HTTP-код (например, 302) = прокси работает. Таймаут = смотрите `sudo docker compose logs xray`.
+
+Файл `xray/config.json` содержит ключи и находится в `.gitignore` — в репозиторий не попадает.
+
+### Вариант 2: любой внешний SOCKS5/HTTP-прокси
 
 ```
 TELEGRAM_PROXY=socks5://user:pass@адрес:1080
 ```
 
-Подойдёт любой SOCKS5/HTTP-прокси за пределами блокировки: дешёвый зарубежный VPS
-с dante/3proxy, либо локальный socks5-порт вашего VPN-клиента (xray/sing-box можно
-поднять соседним контейнером и указать `TELEGRAM_PROXY=socks5://xray:1080`).
-Прокси нужен только для Telegram — Immich и Jellyfin ходят напрямую по локальной сети.
+Подойдёт дешёвый зарубежный VPS с dante/3proxy. Обычный незамаскированный SOCKS5
+до российского IP может быть заблокирован DPI так же, как сам Telegram — потому
+вариант 1 надёжнее. MTProto-прокси **не подойдёт**: Bot API работает по HTTPS.
 
 ## Настройка (все переменные .env)
 
