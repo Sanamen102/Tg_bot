@@ -25,3 +25,5 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Корень хоста только для чтения — чтобы видеть реальные диски (/disk, /status)
       - /:/host/root:ro
+      # Состояние батареи ноутбука — детектор отключения света
+      - /sys/class/power_supply:/sys/class/power_supply:ro

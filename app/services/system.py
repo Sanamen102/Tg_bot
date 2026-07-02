@@ -29,6 +29,31 @@ class DiskInfo:
 
 
 @dataclass
+class BatteryInfo:
+    percent: float
+    power_plugged: bool
+    secsleft: int | None  # None = неизвестно или заряжается
+
+
+def get_battery() -> BatteryInfo | None:
+    """Состояние питания. None — батареи нет (или её не видно из контейнера)."""
+    try:
+        batt = psutil.sensors_battery()
+    except Exception:
+        return None
+    if batt is None:
+        return None
+    secs = batt.secsleft
+    if secs in (psutil.POWER_TIME_UNLIMITED, psutil.POWER_TIME_UNKNOWN) or secs < 0:
+        secs = None
+    return BatteryInfo(
+        percent=batt.percent,
+        power_plugged=bool(batt.power_plugged),
+        secsleft=secs,
+    )
+
+
+@dataclass
 class SystemStatus:
     uptime_seconds: float
     cpu_percent: float
@@ -40,6 +65,7 @@ class SystemStatus:
     swap_used: int
     swap_percent: float
     disks: list[DiskInfo] = field(default_factory=list)
+    battery: BatteryInfo | None = None
 
     @property
     def problems(self) -> list[str]:
@@ -52,6 +78,10 @@ class SystemStatus:
         cpu_count = os.cpu_count() or 1
         if self.load_avg[1] > cpu_count * 2:
             issues.append(f"высокая нагрузка (load {self.load_avg[1]:.2f})")
+        if self.battery and not self.battery.power_plugged:
+            issues.append(
+                f"работает от аккумулятора ({self.battery.percent:.0f}%) — возможно, нет света"
+            )
         return issues
 
 
@@ -93,6 +123,7 @@ def _collect() -> SystemStatus:
         swap_used=swap.used,
         swap_percent=swap.percent,
         disks=get_disks(),
+        battery=get_battery(),
     )
 
 

@@ -22,6 +22,18 @@ async def cmd_status(message: Message) -> None:
         f"💾 RAM: {human_bytes(st.ram_used)} / {human_bytes(st.ram_total)} ({st.ram_percent:.0f}%)",
         f"🔄 Swap: {human_bytes(st.swap_used)} / {human_bytes(st.swap_total)} ({st.swap_percent:.0f}%)",
     ]
+    if st.battery:
+        if st.battery.power_plugged:
+            lines.append(f"🔌 Питание: от сети (батарея {st.battery.percent:.0f}%)")
+        else:
+            left = (
+                f", осталось ~{human_duration(st.battery.secsleft)}"
+                if st.battery.secsleft
+                else ""
+            )
+            lines.append(
+                f"🔋 Питание: ОТ АККУМУЛЯТОРА ({st.battery.percent:.0f}%{left})"
+            )
     if st.disks:
         lines.append("\n💽 <b>Диски:</b>")
         for d in st.disks:

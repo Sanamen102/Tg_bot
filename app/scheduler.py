@@ -78,4 +78,14 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         )
         log.info("Мониторинг: каждые %d мин", settings.monitor_interval_minutes)
 
+    if settings.power_check_interval_seconds > 0:
+        scheduler.add_job(
+            monitor.power_check,
+            "interval",
+            seconds=settings.power_check_interval_seconds,
+            args=[bot],
+            name="power_check",
+        )
+        log.info("Проверка питания: каждые %d с", settings.power_check_interval_seconds)
+
     return scheduler

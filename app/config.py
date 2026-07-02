@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     weekly_report_day: str = "sun"      # mon/tue/wed/thu/fri/sat/sun
     weekly_report_time: str = "18:00"  # "HH:MM", пустая строка отключает
     monitor_interval_minutes: int = 15  # 0 отключает фоновый мониторинг
+    # Проверка питания (сеть/аккумулятор) — для ноутбука-сервера это детектор
+    # отключения света. Проверяем часто, алерт только при смене состояния.
+    power_check_interval_seconds: int = 60  # 0 отключает
+    battery_low_threshold: int = 25  # % заряда для критического алерта
 
     @cached_property
     def allowed_ids(self) -> set[int]:
