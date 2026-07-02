@@ -63,7 +63,12 @@ async def main() -> None:
     bot = Bot(
         settings.bot_token,
         session=session,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        default=DefaultBotProperties(
+            parse_mode=ParseMode.HTML,
+            # Иначе Telegram рисует превью-карточку для ссылок в тексте,
+            # например для ghcr.io/... в именах docker-образов (/containers)
+            link_preview_is_disabled=True,
+        ),
     )
     dp = Dispatcher()
 
@@ -97,7 +102,9 @@ async def main() -> None:
     log.info("HomePilot запущен. Разрешённые пользователи: %d шт.", len(settings.allowed_ids))
     try:
         # start_polling первым делом дергает bot.me() — если Telegram сейчас
-        # недоступен (сеть, блокировка), не падаем, а повторяем попытки.
+        # недоступен (сеть, блокировка, лежащий прокси), не падаем, а повторяем.
+        # Ловим не только TelegramNetworkError: ошибки socks-прокси (aiohttp-socks)
+        # не наследуются от aiohttp.ClientError и пролетают мимо обёрток aiogram.
         while True:
             try:
                 await dp.start_polling(bot)
@@ -107,6 +114,11 @@ async def main() -> None:
                     "Нет связи с Telegram API: %s. Повторная попытка через 30 с. "
                     "Если провайдер блокирует Telegram — задайте TELEGRAM_PROXY в .env.",
                     e,
+                )
+                await asyncio.sleep(30)
+            except Exception:
+                log.exception(
+                    "Polling упал с неожиданной ошибкой. Повторная попытка через 30 с."
                 )
                 await asyncio.sleep(30)
     finally:
