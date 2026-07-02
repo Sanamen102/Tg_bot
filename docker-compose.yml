@@ -32,8 +32,3 @@ services:
       - /sys/class/power_supply:/sys/class/power_supply:ro
       # SSH-ключ для управления zapret на хосте (только чтение)
       - ./ssh:/app/ssh:ro
-      # SSH-ключ для управления zapret на хосте (создаётся при настройке, см. README)
-      - ./ssh:/app/ssh:ro
-    extra_hosts:
-      # host.docker.internal = хост-машина, нужно для SSH к zapret
-      - "host.docker.internal:host-gateway"
