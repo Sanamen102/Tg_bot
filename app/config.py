@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     jellyfin_api_key: str = ""
     jellyfin_user_id: str = ""
 
+    # --- Zapret (обход DPI на хосте) ---
+    # Бот управляет systemd-сервисом zapret по SSH с forced command:
+    # ключ позволяет выполнить только start/stop/restart/status.
+    # Пустой zapret_ssh_user выключает функцию целиком.
+    zapret_ssh_host: str = "host.docker.internal"
+    zapret_ssh_port: int = 22
+    zapret_ssh_user: str = ""
+    zapret_ssh_key_path: str = "/app/ssh/id_ed25519"
+
     # --- Расписание ---
     daily_memory_time: str = "09:00"   # "HH:MM", пустая строка отключает
     weekly_report_day: str = "sun"      # mon/tue/wed/thu/fri/sat/sun
@@ -73,6 +82,10 @@ class Settings(BaseSettings):
             else:
                 result.append((item, item))
         return result
+
+    @property
+    def zapret_enabled(self) -> bool:
+        return bool(self.zapret_ssh_user)
 
     @cached_property
     def notify_chat_id(self) -> int | None:

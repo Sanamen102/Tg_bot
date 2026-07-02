@@ -1,5 +1,7 @@
 .env
 xray/config.json
+ssh/
+ssh/
 __pycache__/
 *.pyc
 .venv/

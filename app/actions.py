@@ -15,9 +15,11 @@ from aiogram.types import (
     InputMediaPhoto,
 )
 
+from app.config import settings
 from app.formatting import esc, human_bytes, human_duration, ru_date, ru_years_ago
 from app.services import docker_service
 from app.services import system as system_service
+from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
 from app.services.immich import Asset, ImmichClient
 from app.services.jellyfin import JellyfinClient
@@ -74,6 +76,11 @@ async def _jellyfin_summary() -> str:
     return f"🎬 <b>Jellyfin:</b> ✅ доступен (v{esc(info.get('Version', '?'))})"
 
 
+async def _zapret_summary() -> str:
+    active = await zapret_service.is_active()
+    return "🛡 <b>Zapret:</b> " + ("✅ активен" if active else "❌ выключен")
+
+
 async def _safe(coro, fallback_prefix: str) -> str:
     try:
         return await coro
@@ -87,12 +94,15 @@ async def _safe(coro, fallback_prefix: str) -> str:
 # ---------- Сводка "сегодня" ----------
 
 async def build_today_text() -> str:
-    parts = await asyncio.gather(
+    tasks = [
         _safe(_server_summary(), "🖥 <b>Сервер:</b>"),
         _safe(_docker_summary(), "🐳 <b>Контейнеры:</b>"),
         _safe(_immich_summary(), "📸 <b>Immich:</b>"),
         _safe(_jellyfin_summary(), "🎬 <b>Jellyfin:</b>"),
-    )
+    ]
+    if settings.zapret_enabled:
+        tasks.append(_safe(_zapret_summary(), "🛡 <b>Zapret:</b>"))
+    parts = await asyncio.gather(*tasks)
     today = datetime.now()
     header = f"🏠 <b>HomePilot — сводка на {ru_date(today)}</b>\n"
     return "\n\n".join([header, *parts])

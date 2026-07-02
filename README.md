@@ -34,6 +34,7 @@
 | `/day [дата]` | Все фото за день — альбомами по 10 с кнопкой «Показать ещё» (`02.07.2024`, `2024-07-02`, `02.07`; без даты — сегодня) |
 | `/jellyfin_status` | Доступность Jellyfin + последние добавления |
 | `/movie` | Случайный фильм на вечер (постер, год, жанры, описание) |
+| `/zapret` | Обход DPI: статус и вкл/выкл/перезапуск кнопками (если настроен) |
 | `/today` | Сводка: сервер, контейнеры, Immich, Jellyfin |
 | `/week` | Недельная сводка: новые фото, новые фильмы/серии, диски, проблемы |
 
@@ -146,6 +147,51 @@ TELEGRAM_PROXY=socks5://user:pass@адрес:1080
 до российского IP может быть заблокирован DPI так же, как сам Telegram — потому
 вариант 1 надёжнее. MTProto-прокси **не подойдёт**: Bot API работает по HTTPS.
 
+## Управление zapret (обход DPI) с бота
+
+Если на хосте-шлюзе стоит [zapret](https://github.com/bol-van/zapret) как systemd-сервис,
+бот умеет показывать его статус и включать/выключать/перезапускать командой `/zapret`
+(inline-кнопки). Бот живёт в контейнере, zapret — на хосте, поэтому связь идёт по SSH
+с **forced command**: ключ бота на хосте может выполнить только скрипт-обёртку, который
+принимает строго `start/stop/restart/status`. Даже утёкший ключ не даёт shell на хосте.
+
+Безопасно для самого бота: его доступ к Telegram идёт через xray/VLESS и от zapret
+не зависит — выключив zapret, бот останется на связи и включит обратно.
+
+### Настройка на хосте
+
+```bash
+# 1. Ключ (генерируем на хосте, кладём в проект — приватный ключ в .gitignore)
+mkdir -p ~/Tg_bot/ssh
+ssh-keygen -t ed25519 -f ~/Tg_bot/ssh/id_ed25519 -N "" -C homepilot-zapret
+chmod 600 ~/Tg_bot/ssh/id_ed25519
+
+# 2. Скрипт-обёртка
+sudo install -m 755 ~/Tg_bot/deploy/zapret-ctl.sh /usr/local/bin/zapret-ctl
+
+# 3. Разрешить пользователю управлять сервисом без пароля
+#    (замените san на своего пользователя)
+echo 'san ALL=(root) NOPASSWD: /usr/bin/systemctl start zapret, /usr/bin/systemctl stop zapret, /usr/bin/systemctl restart zapret' | sudo tee /etc/sudoers.d/homepilot-zapret
+sudo chmod 440 /etc/sudoers.d/homepilot-zapret
+
+# 4. Привязать ключ бота к forced command в authorized_keys
+KEY=$(cat ~/Tg_bot/ssh/id_ed25519.pub)
+echo "command=\"/usr/local/bin/zapret-ctl\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $KEY" >> ~/.ssh/authorized_keys
+```
+
+### Настройка в `.env`
+
+```
+ZAPRET_SSH_USER=san            # пользователь на хосте, чей authorized_keys правили
+ZAPRET_SSH_HOST=host.docker.internal
+ZAPRET_SSH_PORT=22
+ZAPRET_SSH_KEY_PATH=/app/ssh/id_ed25519
+```
+
+`host.docker.internal` резолвится в IP хоста благодаря `extra_hosts` в compose.
+После `docker compose up -d --build` проверьте `/zapret` в боте.
+Если `ZAPRET_SSH_USER` пуст — функция и команда `/zapret` просто выключены.
+
 ## Настройка (все переменные .env)
 
 | Переменная | Обязательна | Описание |
@@ -160,6 +206,10 @@ TELEGRAM_PROXY=socks5://user:pass@адрес:1080
 | `IMMICH_URL`, `IMMICH_API_KEY` | — | Подключение к Immich |
 | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | — | Подключение к Jellyfin |
 | `JELLYFIN_USER_ID` | — | От чьего имени смотреть медиатеку |
+| `ZAPRET_SSH_USER` | — | Пользователь на хосте для управления zapret (пусто = выкл) |
+| `ZAPRET_SSH_HOST` | — | Адрес хоста (по умолчанию host.docker.internal) |
+| `ZAPRET_SSH_PORT` | — | Порт SSH хоста (по умолчанию 22) |
+| `ZAPRET_SSH_KEY_PATH` | — | Путь к приватному ключу внутри контейнера |
 | `DAILY_MEMORY_TIME` | — | Время «воспоминания дня», `HH:MM` (пусто = выкл) |
 | `WEEKLY_REPORT_DAY`, `WEEKLY_REPORT_TIME` | — | Еженедельный отчёт (пустое время = выкл) |
 | `MONITOR_INTERVAL_MINUTES` | — | Интервал мониторинга, мин (0 = выкл) |

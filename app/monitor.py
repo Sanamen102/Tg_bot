@@ -13,6 +13,7 @@ from app.config import settings
 from app.formatting import esc, human_bytes, human_duration
 from app.services import docker_service
 from app.services import system as system_service
+from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -101,6 +102,17 @@ async def _collect_problems() -> dict[str, str]:
         log.warning("Мониторинг: %s", e.user_message)
     except Exception:
         log.exception("Мониторинг: не удалось проверить контейнеры")
+
+    if settings.zapret_enabled:
+        try:
+            if not await zapret_service.is_active():
+                problems["zapret"] = (
+                    "🛡 Zapret не активен — обход DPI не работает. Включить: /zapret"
+                )
+        except ServiceError as e:
+            log.warning("Мониторинг zapret: %s", e.user_message)
+        except Exception:
+            log.exception("Мониторинг: не удалось проверить zapret")
 
     return problems
 

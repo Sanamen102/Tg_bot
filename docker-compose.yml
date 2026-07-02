@@ -20,6 +20,9 @@ services:
     env_file: .env
     environment:
       - TZ=${TZ:-Europe/Moscow}
+    # Чтобы ZAPRET_SSH_HOST=host.docker.internal резолвился в IP хоста
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Управление Docker-контейнерами (обязательно для /containers, /logs, /restart)
       - /var/run/docker.sock:/var/run/docker.sock
@@ -27,3 +30,10 @@ services:
       - /:/host/root:ro
       # Состояние батареи ноутбука — детектор отключения света
       - /sys/class/power_supply:/sys/class/power_supply:ro
+      # SSH-ключ для управления zapret на хосте (только чтение)
+      - ./ssh:/app/ssh:ro
+      # SSH-ключ для управления zapret на хосте (создаётся при настройке, см. README)
+      - ./ssh:/app/ssh:ro
+    extra_hosts:
+      # host.docker.internal = хост-машина, нужно для SSH к zapret
+      - "host.docker.internal:host-gateway"
