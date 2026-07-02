@@ -21,6 +21,7 @@ BOT_COMMANDS = [
     BotCommand(command="immich_status", description="Статус Immich"),
     BotCommand(command="memory", description="Случайное фото"),
     BotCommand(command="memory_today", description="Фото этого дня в прошлом"),
+    BotCommand(command="day", description="Все фото за день"),
     BotCommand(command="jellyfin_status", description="Статус Jellyfin"),
     BotCommand(command="movie", description="Случайный фильм на вечер"),
     BotCommand(command="today", description="Сводка на сегодня"),

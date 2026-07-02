@@ -5,10 +5,15 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from aiogram import Bot
-from aiogram.types import BufferedInputFile
+from aiogram.types import (
+    BufferedInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+)
 
 from app.formatting import esc, human_bytes, human_duration, ru_date, ru_years_ago
 from app.services import docker_service
@@ -151,6 +156,70 @@ async def send_random_asset(bot: Bot, chat_id: int) -> None:
         return
     asset = assets[0]
     await send_asset(bot, chat_id, asset, _asset_caption(asset, "🎲 Случайное: "))
+
+
+DAY_BATCH = 10   # фото в одном альбоме (лимит Telegram на media group)
+DAY_MAX = 200    # максимум фото за день, которые вообще запрашиваем
+
+
+async def send_day_photos(bot: Bot, chat_id: int, day: date, offset: int = 0) -> None:
+    """Фото за конкретный день порциями по DAY_BATCH с кнопкой «Показать ещё»."""
+    immich = ImmichClient()
+    assets = await immich.assets_taken_on(day, size=DAY_MAX)
+    total = len(assets)
+    if total == 0:
+        await bot.send_message(chat_id, f"За {ru_date(day)} фото не нашлось.")
+        return
+    batch = assets[offset : offset + DAY_BATCH]
+    if not batch:
+        await bot.send_message(chat_id, "Больше фото за этот день нет.")
+        return
+
+    thumbs = await asyncio.gather(
+        *(immich.thumbnail(a.id) for a in batch), return_exceptions=True
+    )
+    end = offset + len(batch)
+    total_str = f"{total}+" if total >= DAY_MAX else str(total)
+    caption = f"📅 <b>{ru_date(day)}</b> — фото {offset + 1}–{end} из {total_str}"
+    if any(a.is_video for a in batch):
+        caption += "\n🎥 — превью видео"
+
+    media: list[InputMediaPhoto] = []
+    for asset, data in zip(batch, thumbs):
+        if isinstance(data, BaseException):
+            log.warning("Не удалось скачать превью %s", asset.id)
+            continue
+        # Подпись только у первого фото — тогда Telegram показывает её
+        # как общую подпись всего альбома
+        media.append(
+            InputMediaPhoto(
+                media=BufferedInputFile(data, filename=f"{asset.id}.jpg"),
+                caption=caption if not media else None,
+            )
+        )
+    if not media:
+        await bot.send_message(chat_id, "⚠️ Immich не отдал ни одного превью, попробуйте ещё раз.")
+        return
+
+    if len(media) == 1:
+        await bot.send_photo(chat_id, media[0].media, caption=caption)
+    else:
+        await bot.send_media_group(chat_id, media)
+
+    if end < total:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=f"📷 Показать ещё (осталось {total - end})",
+                        callback_data=f"day:{day.isoformat()}:{end}",
+                    )
+                ]
+            ]
+        )
+        await bot.send_message(
+            chat_id, f"Показано {end} из {total_str}.", reply_markup=keyboard
+        )
 
 
 async def send_memories_today(bot: Bot, chat_id: int, limit: int = 4) -> None:
