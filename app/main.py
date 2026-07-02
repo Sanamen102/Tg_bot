@@ -7,6 +7,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.types import BotCommand
 
 log = logging.getLogger(__name__)
@@ -71,7 +72,16 @@ async def main() -> None:
         digest.router,
     )
 
-    await bot.set_my_commands(BOT_COMMANDS)
+    # Меню команд — не критично: если Telegram сейчас недоступен,
+    # не падаем, а идём в polling (он сам переподключается с backoff).
+    try:
+        await bot.set_my_commands(BOT_COMMANDS)
+    except TelegramNetworkError as e:
+        log.warning(
+            "Не удалось задать меню команд (нет связи с Telegram): %s. "
+            "Продолжаю запуск — polling будет пытаться переподключиться.",
+            e,
+        )
 
     scheduler = setup_scheduler(bot)
     scheduler.start()
