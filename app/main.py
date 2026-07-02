@@ -53,8 +53,16 @@ async def main() -> None:
     from app.handlers import basic, containers, digest, immich, jellyfin, system
     from app.scheduler import setup_scheduler
 
+    session = None
+    if settings.telegram_proxy:
+        from aiogram.client.session.aiohttp import AiohttpSession
+
+        session = AiohttpSession(proxy=settings.telegram_proxy)
+        log.info("Telegram API через прокси (адрес скрыт из логов).")
+
     bot = Bot(
         settings.bot_token,
+        session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
@@ -88,7 +96,19 @@ async def main() -> None:
 
     log.info("HomePilot запущен. Разрешённые пользователи: %d шт.", len(settings.allowed_ids))
     try:
-        await dp.start_polling(bot)
+        # start_polling первым делом дергает bot.me() — если Telegram сейчас
+        # недоступен (сеть, блокировка), не падаем, а повторяем попытки.
+        while True:
+            try:
+                await dp.start_polling(bot)
+                break  # штатная остановка polling
+            except TelegramNetworkError as e:
+                log.warning(
+                    "Нет связи с Telegram API: %s. Повторная попытка через 30 с. "
+                    "Если провайдер блокирует Telegram — задайте TELEGRAM_PROXY в .env.",
+                    e,
+                )
+                await asyncio.sleep(30)
     finally:
         scheduler.shutdown(wait=False)
         await bot.session.close()

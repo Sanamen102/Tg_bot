@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     allowed_user_ids: str
     # Куда слать плановые уведомления (по умолчанию — первый из allowed_user_ids)
     admin_chat_id: int | None = None
+    # Прокси для доступа к Telegram API, если провайдер его блокирует.
+    # Примеры: socks5://user:pass@host:1080, http://host:3128
+    telegram_proxy: str = ""
 
     # --- Docker ---
     # Контейнеры, которые бот имеет право перезапускать: "immich_server,jellyfin"
