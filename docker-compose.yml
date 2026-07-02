@@ -1,0 +1,13 @@
+services:
+  homepilot:
+    build: .
+    container_name: homepilot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+    volumes:
+      # Управление Docker-контейнерами (обязательно для /containers, /logs, /restart)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Корень хоста только для чтения — чтобы видеть реальные диски (/disk, /status)
+      - /:/host/root:ro
