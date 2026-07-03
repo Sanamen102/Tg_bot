@@ -24,6 +24,7 @@ BOT_COMMANDS = [
     BotCommand(command="day", description="Все фото за день"),
     BotCommand(command="jellyfin_status", description="Статус Jellyfin"),
     BotCommand(command="movie", description="Случайный фильм на вечер"),
+    BotCommand(command="torrents", description="Закачки Transmission"),
     BotCommand(command="zapret", description="Обход DPI: статус и управление"),
     BotCommand(command="today", description="Сводка на сегодня"),
     BotCommand(command="week", description="Сводка за неделю"),
@@ -52,7 +53,16 @@ async def main() -> None:
         sys.exit(1)
 
     from app.auth import AuthMiddleware
-    from app.handlers import basic, containers, digest, immich, jellyfin, system, zapret
+    from app.handlers import (
+        basic,
+        containers,
+        digest,
+        immich,
+        jellyfin,
+        system,
+        torrents,
+        zapret,
+    )
     from app.scheduler import setup_scheduler
 
     session = None
@@ -84,6 +94,7 @@ async def main() -> None:
         containers.router,
         immich.router,
         jellyfin.router,
+        torrents.router,
         zapret.router,
         digest.router,
     )

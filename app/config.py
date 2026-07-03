@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     jellyfin_api_key: str = ""
     jellyfin_user_id: str = ""
 
+    # --- Transmission ---
+    transmission_url: str = ""
+    transmission_user: str = ""
+    transmission_password: str = ""
+
     # --- Zapret (обход DPI на хосте) ---
     # Бот управляет systemd-сервисом zapret по SSH с forced command:
     # ключ позволяет выполнить только start/stop/restart/status.
@@ -59,6 +64,12 @@ class Settings(BaseSettings):
     # отключения света. Проверяем часто, алерт только при смене состояния.
     power_check_interval_seconds: int = 60  # 0 отключает
     battery_low_threshold: int = 25  # % заряда для критического алерта
+    # Проверка завершённых закачек Transmission, секунды (0 отключает)
+    torrent_check_interval_seconds: int = 120
+    # Порог температуры CPU для алерта о перегреве, °C
+    temp_alert_threshold: int = 85
+    # Проверка доступности интернета для отчёта «интернет падал», сек (0 отключает)
+    internet_check_interval_seconds: int = 60
 
     @cached_property
     def allowed_ids(self) -> set[int]:

@@ -23,6 +23,7 @@ from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
 from app.services.immich import Asset, ImmichClient
 from app.services.jellyfin import JellyfinClient
+from app.services.transmission import TransmissionClient
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,16 @@ async def _zapret_summary() -> str:
     return "🛡 <b>Zapret:</b> " + ("✅ активен" if active else "❌ выключен")
 
 
+async def _transmission_summary() -> str:
+    torrents = await TransmissionClient().torrents()
+    downloading = [t for t in torrents if t.status == 4]
+    seeding = sum(1 for t in torrents if t.status == 6)
+    line = f"⬇️ <b>Transmission:</b> качается {len(downloading)}, раздаётся {seeding}"
+    for t in downloading[:3]:
+        line += f"\n  • {esc(t.name[:50])} — {t.percent * 100:.0f}%"
+    return line
+
+
 async def _safe(coro, fallback_prefix: str) -> str:
     try:
         return await coro
@@ -102,6 +113,8 @@ async def build_today_text() -> str:
     ]
     if settings.zapret_enabled:
         tasks.append(_safe(_zapret_summary(), "🛡 <b>Zapret:</b>"))
+    if settings.transmission_url:
+        tasks.append(_safe(_transmission_summary(), "⬇️ <b>Transmission:</b>"))
     parts = await asyncio.gather(*tasks)
     today = datetime.now()
     header = f"🏠 <b>HomePilot — сводка на {ru_date(today)}</b>\n"

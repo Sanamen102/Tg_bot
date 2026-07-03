@@ -88,4 +88,26 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         )
         log.info("Проверка питания: каждые %d с", settings.power_check_interval_seconds)
 
+    if settings.transmission_url and settings.torrent_check_interval_seconds > 0:
+        scheduler.add_job(
+            monitor.torrent_check,
+            "interval",
+            seconds=settings.torrent_check_interval_seconds,
+            args=[bot],
+            name="torrent_check",
+        )
+        log.info("Проверка закачек: каждые %d с", settings.torrent_check_interval_seconds)
+
+    if settings.internet_check_interval_seconds > 0:
+        scheduler.add_job(
+            monitor.internet_check,
+            "interval",
+            seconds=settings.internet_check_interval_seconds,
+            args=[bot],
+            name="internet_check",
+        )
+        log.info(
+            "Проверка интернета: каждые %d с", settings.internet_check_interval_seconds
+        )
+
     return scheduler

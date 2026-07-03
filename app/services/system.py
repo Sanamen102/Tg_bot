@@ -8,10 +8,14 @@ import asyncio
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import psutil
 
 from app.config import settings
+
+# Датчики температуры CPU в порядке предпочтения (Intel, AMD, ARM, ACPI)
+_TEMP_SENSORS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz")
 
 
 @dataclass
@@ -33,6 +37,48 @@ class BatteryInfo:
     percent: float
     power_plugged: bool
     secsleft: int | None  # None = неизвестно или заряжается
+    wear_percent: float | None = None  # износ: насколько ёмкость меньше заводской
+
+
+def _read_battery_wear() -> float | None:
+    """Износ батареи из sysfs: 100% * (1 - текущая_ёмкость / заводская)."""
+    base = Path("/sys/class/power_supply")
+    try:
+        for bat in sorted(base.glob("BAT*")):
+            for full_name, design_name in (
+                ("energy_full", "energy_full_design"),
+                ("charge_full", "charge_full_design"),
+            ):
+                full_f = bat / full_name
+                design_f = bat / design_name
+                if full_f.exists() and design_f.exists():
+                    full = int(full_f.read_text().strip())
+                    design = int(design_f.read_text().strip())
+                    if full > 0 and design > 0:
+                        return max(0.0, 100.0 * (1 - full / design))
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def get_cpu_temp() -> float | None:
+    """Максимальная температура CPU в °C. None — датчики недоступны."""
+    try:
+        temps = psutil.sensors_temperatures()
+    except (AttributeError, OSError):
+        return None
+    if not temps:
+        return None
+
+    def valid(entries) -> list[float]:
+        return [e.current for e in entries if e.current and 0 < e.current < 130]
+
+    for name in _TEMP_SENSORS:
+        values = valid(temps.get(name, []))
+        if values:
+            return max(values)
+    values = valid([e for entries in temps.values() for e in entries])
+    return max(values) if values else None
 
 
 def get_battery() -> BatteryInfo | None:
@@ -50,6 +96,7 @@ def get_battery() -> BatteryInfo | None:
         percent=batt.percent,
         power_plugged=bool(batt.power_plugged),
         secsleft=secs,
+        wear_percent=_read_battery_wear(),
     )
 
 
@@ -66,6 +113,7 @@ class SystemStatus:
     swap_percent: float
     disks: list[DiskInfo] = field(default_factory=list)
     battery: BatteryInfo | None = None
+    cpu_temp: float | None = None
 
     @property
     def problems(self) -> list[str]:
@@ -82,6 +130,8 @@ class SystemStatus:
             issues.append(
                 f"работает от аккумулятора ({self.battery.percent:.0f}%) — возможно, нет света"
             )
+        if self.cpu_temp and self.cpu_temp >= settings.temp_alert_threshold:
+            issues.append(f"CPU перегрет ({self.cpu_temp:.0f}°C)")
         return issues
 
 
@@ -124,6 +174,7 @@ def _collect() -> SystemStatus:
         swap_percent=swap.percent,
         disks=get_disks(),
         battery=get_battery(),
+        cpu_temp=get_cpu_temp(),
     )
 
 

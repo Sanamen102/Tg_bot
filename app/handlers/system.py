@@ -6,6 +6,7 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from app.config import settings
 from app.formatting import esc, human_bytes, human_duration, progress_bar
 from app.services import system as system_service
 
@@ -22,9 +23,17 @@ async def cmd_status(message: Message) -> None:
         f"💾 RAM: {human_bytes(st.ram_used)} / {human_bytes(st.ram_total)} ({st.ram_percent:.0f}%)",
         f"🔄 Swap: {human_bytes(st.swap_used)} / {human_bytes(st.swap_total)} ({st.swap_percent:.0f}%)",
     ]
+    if st.cpu_temp is not None:
+        temp_mark = " 🔥" if st.cpu_temp >= settings.temp_alert_threshold else ""
+        lines.append(f"🌡 Температура CPU: {st.cpu_temp:.0f}°C{temp_mark}")
     if st.battery:
+        wear = (
+            f", износ {st.battery.wear_percent:.0f}%"
+            if st.battery.wear_percent is not None
+            else ""
+        )
         if st.battery.power_plugged:
-            lines.append(f"🔌 Питание: от сети (батарея {st.battery.percent:.0f}%)")
+            lines.append(f"🔌 Питание: от сети (батарея {st.battery.percent:.0f}%{wear})")
         else:
             left = (
                 f", осталось ~{human_duration(st.battery.secsleft)}"

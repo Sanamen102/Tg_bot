@@ -6,6 +6,7 @@
 
 import asyncio
 import logging
+from datetime import datetime
 
 from aiogram import Bot
 
@@ -15,6 +16,7 @@ from app.services import docker_service
 from app.services import system as system_service
 from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
+from app.services.transmission import TransmissionClient
 
 log = logging.getLogger(__name__)
 
@@ -43,14 +45,16 @@ async def power_check(bot: Bot) -> None:
         return
 
     if battery.power_plugged != _last_plugged:
-        _last_plugged = battery.power_plugged
+        # Состояние фиксируем ТОЛЬКО после успешной отправки: если Telegram
+        # сейчас недоступен (при отключении света роутер тоже гаснет),
+        # исключение оставит старое состояние и алерт уйдёт со следующей попытки.
         if battery.power_plugged:
-            _low_battery_alerted = False
             await bot.send_message(
                 chat_id,
                 f"🔌 <b>Свет дали!</b> Сервер снова питается от сети "
                 f"(батарея {battery.percent:.0f}%).",
             )
+            _low_battery_alerted = False
         else:
             left = (
                 f", по оценке хватит на ~{human_duration(battery.secsleft)}"
@@ -62,6 +66,7 @@ async def power_check(bot: Bot) -> None:
                 f"⚡ <b>Похоже, выключили свет!</b> Сервер перешёл на аккумулятор: "
                 f"заряд {battery.percent:.0f}%{left}.",
             )
+        _last_plugged = battery.power_plugged
 
     if (
         not battery.power_plugged
@@ -114,6 +119,16 @@ async def _collect_problems() -> dict[str, str]:
         except Exception:
             log.exception("Мониторинг: не удалось проверить zapret")
 
+    try:
+        temp = await asyncio.to_thread(system_service.get_cpu_temp)
+        if temp and temp >= settings.temp_alert_threshold:
+            problems["temp:CPU"] = (
+                f"🌡 CPU перегрет: {temp:.0f}°C (порог {settings.temp_alert_threshold}°C). "
+                "Проверьте вентиляцию ноутбука."
+            )
+    except Exception:
+        log.exception("Мониторинг: не удалось проверить температуру")
+
     return problems
 
 
@@ -134,8 +149,99 @@ async def monitor_check(bot: Bot) -> None:
 
     if resolved_keys:
         lines = ["✅ <b>HomePilot: проблемы устранены</b>\n"]
-        lines += [f"• {k.split(':', 1)[1]} снова в порядке" for k in sorted(resolved_keys)]
+        lines += [f"• {k.split(':', 1)[-1]} снова в порядке" for k in sorted(resolved_keys)]
         await bot.send_message(chat_id, "\n".join(lines))
 
     _active_alerts.clear()
     _active_alerts.update(problems)
+
+
+# ---------- Завершённые закачки Transmission ----------
+
+# id торрента -> был ли завершён при прошлой проверке (None = ещё не смотрели)
+_torrent_done: dict[int, bool] | None = None
+
+
+async def torrent_check(bot: Bot) -> None:
+    """Алерт, когда качавшийся торрент завершился."""
+    global _torrent_done
+
+    chat_id = settings.notify_chat_id
+    if chat_id is None or not settings.transmission_url:
+        return
+    try:
+        torrents = await TransmissionClient().torrents()
+    except ServiceError as e:
+        log.warning("Проверка торрентов: %s", e.user_message)
+        return
+
+    current = {t.id: t.is_done for t in torrents}
+    if _torrent_done is None:
+        # Первый запуск: запоминаем состояние, о старых закачках не алертим
+        _torrent_done = current
+        return
+
+    for t in torrents:
+        if t.is_done and _torrent_done.get(t.id) is False:
+            await bot.send_message(
+                chat_id,
+                f"✅ <b>Скачалось:</b> {esc(t.name)} ({human_bytes(t.size)})",
+            )
+    _torrent_done = current
+
+
+# ---------- Детектор падений интернета ----------
+
+# Проверяем прямое TCP-соединение до надёжных адресов (без DNS и без прокси)
+_NET_CHECK_HOSTS = (("1.1.1.1", 443), ("8.8.8.8", 443))
+_NET_CONFIRM_FAILS = 2  # сколько проверок подряд должно упасть, чтобы считать сбоем
+
+_net_outage_start: datetime | None = None
+_net_fail_count = 0
+
+
+async def _internet_ok() -> bool:
+    for host, port in _NET_CHECK_HOSTS:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=5
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+            return True
+        except (OSError, asyncio.TimeoutError):
+            continue
+    return False
+
+
+async def internet_check(bot: Bot) -> None:
+    """Пост-фактум отчёт: «интернет пропадал с X до Y» после восстановления связи."""
+    global _net_outage_start, _net_fail_count
+
+    chat_id = settings.notify_chat_id
+    if chat_id is None:
+        return
+
+    if await _internet_ok():
+        if _net_outage_start and _net_fail_count >= _NET_CONFIRM_FAILS:
+            start = _net_outage_start
+            end = datetime.now()
+            duration = human_duration((end - start).total_seconds())
+            # Сначала шлём отчёт, потом сбрасываем состояние: если Telegram ещё
+            # не доступен, исключение сохранит сбой до следующей попытки
+            await bot.send_message(
+                chat_id,
+                f"🌐 <b>Интернет вернулся!</b> Связь пропадала с "
+                f"{start:%H:%M} до {end:%H:%M} (~{duration}).",
+            )
+        _net_outage_start = None
+        _net_fail_count = 0
+    else:
+        _net_fail_count += 1
+        if _net_outage_start is None:
+            _net_outage_start = datetime.now()
+        if _net_fail_count == _NET_CONFIRM_FAILS:
+            log.warning("Интернет недоступен с %s", _net_outage_start)
