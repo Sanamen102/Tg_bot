@@ -131,9 +131,17 @@ class TransmissionClient:
         # Качающиеся сверху, потом по имени
         return sorted(result, key=lambda t: (t.is_done, t.name.lower()))
 
-    async def add_magnet(self, magnet: str) -> tuple[str, bool]:
-        """Добавляет magnet-ссылку. Возвращает (имя, уже_был_добавлен)."""
-        args = await self._rpc("torrent-add", {"filename": magnet})
+    async def add_magnet(
+        self, magnet: str, download_dir: str | None = None
+    ) -> tuple[str, bool]:
+        """Добавляет magnet-ссылку. Возвращает (имя, уже_был_добавлен).
+
+        download_dir — путь внутри контейнера Transmission; None = его дефолт.
+        """
+        arguments: dict = {"filename": magnet}
+        if download_dir:
+            arguments["download-dir"] = download_dir
+        args = await self._rpc("torrent-add", arguments)
         if "torrent-duplicate" in args:
             return args["torrent-duplicate"].get("name", "торрент"), True
         return args.get("torrent-added", {}).get("name", "торрент"), False

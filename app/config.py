@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     transmission_url: str = ""
     transmission_user: str = ""
     transmission_password: str = ""
+    # Категории для выбора папки при добавлении торрента.
+    # Формат: "Метка:/путь/внутри/контейнера/transmission" через запятую.
+    # Пример: 🎬 Фильм:/downloads/movie,📺 Сериал:/downloads/show
+    torrent_dirs: str = ""
 
     # --- Zapret (обход DPI на хосте) ---
     # Бот управляет systemd-сервисом zapret по SSH с forced command:
@@ -92,6 +96,19 @@ class Settings(BaseSettings):
                 result.append((label.strip(), path.strip()))
             else:
                 result.append((item, item))
+        return result
+
+    @cached_property
+    def torrent_categories(self) -> list[tuple[str, str]]:
+        """Список (метка, путь в контейнере transmission) для выбора папки закачки."""
+        result: list[tuple[str, str]] = []
+        for item in self.torrent_dirs.split(","):
+            item = item.strip()
+            if not item or ":" not in item:
+                continue
+            label, path = item.split(":", 1)
+            if label.strip() and path.strip().startswith("/"):
+                result.append((label.strip(), path.strip()))
         return result
 
     @property
