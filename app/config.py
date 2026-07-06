@@ -91,10 +91,9 @@ class Settings(BaseSettings):
     watch_urls: str = ""
 
     # --- Мониторинг AWG-туннеля до VPS ---
-    # TCP-проба адреса, достижимого ТОЛЬКО через туннель (обычно внутренний
-    # IP VPS в VPN-сети и его SSH-порт). Пусто = выкл.
+    # ICMP-ping адреса, достижимого ТОЛЬКО через туннель (обычно внутренний
+    # IP VPS в VPN-сети, например 10.8.1.1). Пусто = выкл.
     awg_check_host: str = ""
-    awg_check_port: int = 22
 
     # --- История метрик и /graph ---
     metrics_interval_minutes: int = 5   # период записи CPU/RAM/°C (0 = выкл)

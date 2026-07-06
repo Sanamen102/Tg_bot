@@ -1,8 +1,9 @@
 FROM python:3.12-slim
 
-# smartmontools — для SMART-мониторинга дисков (/smart)
+# smartmontools — SMART-мониторинг дисков (/smart);
+# iputils-ping — ICMP-проверка AWG-туннеля
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends smartmontools \
+    && apt-get install -y --no-install-recommends smartmontools iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -1,37 +1,50 @@
 """Проверка AWG-туннеля до VPS.
 
-Бот живёт в docker-сети, но хост маршрутизирует VPN-подсеть (10.8.1.0/24)
-в awg0, поэтому TCP-проба внутреннего адреса VPS из контейнера проходит
-только через живой туннель. Если туннель лежит, пакет уходит в дефолтный
-маршрут и приватный адрес недостижим — получаем таймаут.
+Пробуем ICMP-ping внутреннего VPN-адреса VPS (обычно 10.8.1.1). Этот адрес
+живёт внутри контейнера amnezia-awg на VPS: TCP-сервисов там нет, но на ping
+отвечает само ядро — поэтому ICMP, а не TCP-проба. Хост маршрутизирует
+VPN-подсеть в awg0, так что ответ приходит только через живой туннель.
 """
 
 import asyncio
-import time
+import logging
+import re
 
 from app.config import settings
 
+log = logging.getLogger(__name__)
 
-async def tcp_probe(host: str, port: int, timeout: float = 3.0) -> float | None:
-    """RTT в миллисекундах или None, если соединиться не удалось."""
-    start = time.monotonic()
+_TIME_RE = re.compile(rb"time=([\d.]+)")
+_no_ping_warned = False
+
+
+async def icmp_ping(host: str, timeout: int = 3) -> float | None:
+    """RTT в миллисекундах или None, если хост не ответил."""
+    global _no_ping_warned
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout
+        proc = await asyncio.create_subprocess_exec(
+            "ping", "-c", "1", "-W", str(timeout), host,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
-    except (OSError, asyncio.TimeoutError):
+        out, _ = await proc.communicate()
+    except FileNotFoundError:
+        if not _no_ping_warned:
+            _no_ping_warned = True
+            log.warning("Утилита ping не найдена — пересоберите образ бота.")
         return None
-    rtt_ms = (time.monotonic() - start) * 1000
-    writer.close()
-    try:
-        await writer.wait_closed()
-    except OSError:
-        pass
-    return rtt_ms
+    if proc.returncode != 0:
+        return None
+    return parse_ping_time(out)
+
+
+def parse_ping_time(output: bytes) -> float:
+    match = _TIME_RE.search(output)
+    return float(match.group(1)) if match else 0.0
 
 
 async def check_awg() -> float | None:
     """RTT до VPS через туннель; None = туннель не отвечает или не настроен."""
     if not settings.awg_check_host:
         return None
-    return await tcp_probe(settings.awg_check_host, settings.awg_check_port)
+    return await icmp_ping(settings.awg_check_host)

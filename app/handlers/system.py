@@ -1,7 +1,5 @@
 """Команды мониторинга сервера: /status, /disk."""
 
-import asyncio
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -57,10 +55,11 @@ async def cmd_status(message: Message) -> None:
     if st.disks:
         lines.append("\n💽 <b>Диски:</b>")
         for d in st.disks:
-            mark = " ⚠️" if d.is_alert else ""
+            mark = " ⚠️ почти заполнен!" if d.is_alert else ""
             lines.append(
-                f"{esc(d.label)}: {progress_bar(d.percent)} {d.percent:.0f}% "
-                f"· свободно {human_bytes(d.free)}{mark}"
+                f"{esc(d.label)}: {progress_bar(d.percent)} {d.percent:.0f}%\n"
+                f"  занято {human_bytes(d.used)} из {human_bytes(d.total)}, "
+                f"свободно {human_bytes(d.free)}{mark}"
             )
     problems = st.problems
     if problems:
@@ -103,22 +102,4 @@ async def cmd_smart(message: Message) -> None:
     await message.answer("\n".join(lines).rstrip())
 
 
-@router.message(Command("disk"))
-async def cmd_disk(message: Message) -> None:
-    disks = await asyncio.to_thread(system_service.get_disks)
-    if not disks:
-        await message.answer(
-            "Не удалось прочитать ни один диск. Проверьте DISK_PATHS в .env "
-            "и монтирование /host/root в docker-compose.yml."
-        )
-        return
-    lines = ["💽 <b>Диски</b>\n"]
-    for d in disks:
-        mark = " ⚠️ почти заполнен!" if d.is_alert else ""
-        lines.append(
-            f"<b>{esc(d.label)}</b> ({esc(d.path)})\n"
-            f"{progress_bar(d.percent)} {d.percent:.0f}%\n"
-            f"занято {human_bytes(d.used)} из {human_bytes(d.total)}, "
-            f"свободно {human_bytes(d.free)}{mark}\n"
-        )
-    await message.answer("\n".join(lines))
+# /disk удалена: вся информация о дисках теперь в /status

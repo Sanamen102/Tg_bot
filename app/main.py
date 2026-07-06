@@ -14,7 +14,6 @@ log = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
     BotCommand(command="status", description="Статус сервера"),
-    BotCommand(command="disk", description="Свободное место на дисках"),
     BotCommand(command="smart", description="SMART-здоровье дисков"),
     BotCommand(command="graph", description="График CPU/RAM/°C"),
     BotCommand(command="containers", description="Docker-контейнеры"),
