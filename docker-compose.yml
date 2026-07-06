@@ -33,6 +33,8 @@ services:
       - /sys/class/power_supply:/sys/class/power_supply:rw
       # SSH-ключ для управления zapret на хосте (только чтение)
       - ./ssh:/app/ssh:ro
+      # История метрик для /graph — переживает пересборку образа
+      - ./data:/app/data
     # Для SMART-мониторинга (/smart, SMART_DEVICES в .env) раскомментируйте
     # и подставьте свой диск (узнать: lsblk -d -o NAME,TYPE,SIZE):
     # devices:

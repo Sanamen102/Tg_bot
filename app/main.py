@@ -16,6 +16,7 @@ BOT_COMMANDS = [
     BotCommand(command="status", description="Статус сервера"),
     BotCommand(command="disk", description="Свободное место на дисках"),
     BotCommand(command="smart", description="SMART-здоровье дисков"),
+    BotCommand(command="graph", description="График CPU/RAM/°C"),
     BotCommand(command="containers", description="Docker-контейнеры"),
     BotCommand(command="logs", description="Логи контейнера"),
     BotCommand(command="restart", description="Перезапустить контейнер"),
@@ -58,6 +59,7 @@ async def main() -> None:
         basic,
         containers,
         digest,
+        graph,
         immich,
         jellyfin,
         system,
@@ -97,6 +99,7 @@ async def main() -> None:
         jellyfin.router,
         torrents.router,
         zapret.router,
+        graph.router,
         digest.router,
     )
 

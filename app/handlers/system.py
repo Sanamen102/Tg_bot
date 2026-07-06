@@ -10,6 +10,7 @@ from app.config import settings
 from app.formatting import esc, human_bytes, human_duration, progress_bar
 from app.services import smart as smart_service
 from app.services import system as system_service
+from app.services import tunnel as tunnel_service
 from app.services.errors import ServiceError
 
 router = Router(name="system")
@@ -47,6 +48,12 @@ async def cmd_status(message: Message) -> None:
             lines.append(
                 f"🔋 Питание: ОТ АККУМУЛЯТОРА ({st.battery.percent:.0f}%{left})"
             )
+    if settings.awg_check_host:
+        rtt = await tunnel_service.check_awg()
+        if rtt is not None:
+            lines.append(f"🔒 Туннель AWG до VPS: ✅ {rtt:.0f} мс")
+        else:
+            lines.append("🔒 Туннель AWG до VPS: ❌ не отвечает")
     if st.disks:
         lines.append("\n💽 <b>Диски:</b>")
         for d in st.disks:

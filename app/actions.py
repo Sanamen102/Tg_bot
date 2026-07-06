@@ -83,6 +83,15 @@ async def _zapret_summary() -> str:
     return "🛡 <b>Zapret:</b> " + ("✅ активен" if active else "❌ выключен")
 
 
+async def _awg_summary() -> str:
+    from app.services import tunnel as tunnel_service
+
+    rtt = await tunnel_service.check_awg()
+    if rtt is None:
+        return "🔒 <b>AWG-туннель:</b> ❌ не отвечает"
+    return f"🔒 <b>AWG-туннель:</b> ✅ {rtt:.0f} мс"
+
+
 async def _watch_summary() -> str:
     parts = []
     for label, url in settings.watch_services:
@@ -129,6 +138,8 @@ async def build_today_text() -> str:
         tasks.append(_safe(_zapret_summary(), "🛡 <b>Zapret:</b>"))
     if settings.transmission_url:
         tasks.append(_safe(_transmission_summary(), "⬇️ <b>Transmission:</b>"))
+    if settings.awg_check_host:
+        tasks.append(_safe(_awg_summary(), "🔒 <b>AWG-туннель:</b>"))
     if settings.watch_services:
         tasks.append(_safe(_watch_summary(), "🌐 <b>Сервисы:</b>"))
     parts = await asyncio.gather(*tasks)

@@ -1,6 +1,7 @@
 .env
 xray/config.json
 docker-compose.override.yml
+data/
 ssh/
 ssh/
 __pycache__/

@@ -7,3 +7,4 @@ APScheduler>=3.10,<4
 asyncssh>=2.14  # управление zapret на хосте по SSH
 pydantic-settings>=2.3
 tzdata>=2024.1
+matplotlib>=3.8  # график /graph

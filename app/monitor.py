@@ -16,6 +16,7 @@ from app.formatting import esc, human_bytes, human_duration
 from app.services import docker_service
 from app.services import smart as smart_service
 from app.services import system as system_service
+from app.services import tunnel as tunnel_service
 from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
 from app.services.transmission import TransmissionClient
@@ -170,6 +171,16 @@ async def _collect_problems() -> dict[str, str]:
             log.warning("Мониторинг SMART: %s", e.user_message)
         except Exception:
             log.exception("Мониторинг: не удалось проверить SMART")
+
+    if settings.awg_check_host:
+        try:
+            if await tunnel_service.check_awg() is None:
+                problems["awg:туннель до VPS"] = (
+                    "🔒 AWG-туннель до VPS не отвечает — доступ к дому извне не работает. "
+                    "Проверьте: systemctl status awg-quick@awg0 и awg show."
+                )
+        except Exception:
+            log.exception("Мониторинг: не удалось проверить AWG-туннель")
 
     for label, url in settings.watch_services:
         try:

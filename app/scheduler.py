@@ -6,8 +6,12 @@ from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+import asyncio
+
 from app import actions, monitor
 from app.config import settings
+from app.services import metrics
+from app.services import system as system_service
 from app.services.errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -43,6 +47,16 @@ async def _weekly_report(bot: Bot) -> None:
         await bot.send_message(chat_id, text)
     except Exception:
         log.exception("Ошибка еженедельного отчёта")
+
+
+async def _record_metrics() -> None:
+    try:
+        st = await system_service.get_status()
+        await asyncio.to_thread(
+            metrics.record, st.cpu_percent, st.ram_percent, st.cpu_temp
+        )
+    except Exception:
+        log.exception("Не удалось записать метрики")
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
@@ -109,5 +123,14 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         log.info(
             "Проверка интернета: каждые %d с", settings.internet_check_interval_seconds
         )
+
+    if settings.metrics_interval_minutes > 0:
+        scheduler.add_job(
+            _record_metrics,
+            "interval",
+            minutes=settings.metrics_interval_minutes,
+            name="metrics",
+        )
+        log.info("Запись метрик: каждые %d мин", settings.metrics_interval_minutes)
 
     return scheduler

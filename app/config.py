@@ -90,6 +90,17 @@ class Settings(BaseSettings):
     # Бот следит за доступностью и алертит; статус виден в /today.
     watch_urls: str = ""
 
+    # --- Мониторинг AWG-туннеля до VPS ---
+    # TCP-проба адреса, достижимого ТОЛЬКО через туннель (обычно внутренний
+    # IP VPS в VPN-сети и его SSH-порт). Пусто = выкл.
+    awg_check_host: str = ""
+    awg_check_port: int = 22
+
+    # --- История метрик и /graph ---
+    metrics_interval_minutes: int = 5   # период записи CPU/RAM/°C (0 = выкл)
+    metrics_retention_days: int = 14    # сколько дней хранить
+    metrics_db_path: str = "data/metrics.db"
+
     @cached_property
     def allowed_ids(self) -> set[int]:
         return {int(x.strip()) for x in self.allowed_user_ids.split(",") if x.strip()}
