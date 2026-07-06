@@ -34,6 +34,28 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
 
 
+def _iso_tz(dt: datetime) -> str:
+    """ISO-строка с обязательной таймзоной.
+
+    Immich v3 валидирует даты строгим паттерном: без Z или смещения (+03:00)
+    сервер отвечает 400. Наивные datetime считаем локальным временем сервера (TZ).
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return dt.isoformat()
+
+
+def _error_detail(resp: httpx.Response) -> str:
+    """Человекочитаемое пояснение из тела ошибки Immich, если есть."""
+    try:
+        message = resp.json().get("message", "")
+        if isinstance(message, list):
+            message = "; ".join(str(m) for m in message[:3])
+        return f" ({message})" if message else ""
+    except Exception:
+        return ""
+
+
 def _asset_from_json(item: dict) -> Asset:
     taken = item.get("localDateTime") or item.get("fileCreatedAt")
     return Asset(id=item["id"], type=item.get("type", "IMAGE"), taken_at=_parse_dt(taken))
@@ -87,15 +109,22 @@ class ImmichClient:
     async def random_assets(self, count: int = 1) -> list[Asset]:
         resp = await self._request("POST", "/api/search/random", json={"size": count})
         if resp.status_code != 200:
-            raise ServiceError(f"Immich вернул ошибку {resp.status_code} на случайный поиск.")
+            raise ServiceError(
+                f"Immich вернул ошибку {resp.status_code} на случайный поиск"
+                f"{_error_detail(resp)}."
+            )
         data = resp.json()
+        # v3 отдаёт плоский список; раньше был объект {"assets": {"items": [...]}}
         items = data if isinstance(data, list) else data.get("assets", {}).get("items", [])
         return [_asset_from_json(i) for i in items]
 
     async def search_metadata(self, payload: dict) -> list[Asset]:
         resp = await self._request("POST", "/api/search/metadata", json=payload)
         if resp.status_code != 200:
-            raise ServiceError(f"Immich вернул ошибку {resp.status_code} на поиск по метаданным.")
+            raise ServiceError(
+                f"Immich вернул ошибку {resp.status_code} на поиск по метаданным"
+                f"{_error_detail(resp)}."
+            )
         items = resp.json().get("assets", {}).get("items", [])
         return [_asset_from_json(i) for i in items]
 
@@ -104,8 +133,8 @@ class ImmichClient:
         end = start + timedelta(days=1)
         return await self.search_metadata(
             {
-                "takenAfter": start.isoformat(),
-                "takenBefore": end.isoformat(),
+                "takenAfter": _iso_tz(start),
+                "takenBefore": _iso_tz(end),
                 "size": size,
             }
         )
@@ -132,7 +161,7 @@ class ImmichClient:
     async def count_created_since(self, since: datetime, cap: int = 1000) -> int:
         """Сколько ассетов загружено с указанной даты (не более cap)."""
         assets = await self.search_metadata(
-            {"createdAfter": since.isoformat(), "size": cap}
+            {"createdAfter": _iso_tz(since), "size": cap}
         )
         return len(assets)
 
