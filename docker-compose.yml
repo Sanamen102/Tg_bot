@@ -28,7 +28,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Корень хоста только для чтения — чтобы видеть реальные диски (/disk, /status)
       - /:/host/root:ro
-      # Состояние батареи ноутбука — детектор отключения света
-      - /sys/class/power_supply:/sys/class/power_supply:ro
+      # Состояние батареи ноутбука: детектор отключения света + лимит заряда.
+      # rw нужен для записи charge_control_end_threshold (BATTERY_CHARGE_LIMIT)
+      - /sys/class/power_supply:/sys/class/power_supply:rw
       # SSH-ключ для управления zapret на хосте (только чтение)
       - ./ssh:/app/ssh:ro
+    # Для SMART-мониторинга (/smart, SMART_DEVICES в .env) раскомментируйте
+    # и подставьте свой диск (узнать: lsblk -d -o NAME,TYPE,SIZE):
+    # devices:
+    #   - /dev/nvme0n1:/dev/nvme0n1   # NVMe-диск (или /dev/sda для SATA)
+    # cap_add:
+    #   - SYS_RAWIO   # доступ к SMART у SATA-дисков
+    #   - SYS_ADMIN   # доступ к SMART у NVMe-дисков

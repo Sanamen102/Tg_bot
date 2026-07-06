@@ -75,6 +75,21 @@ class Settings(BaseSettings):
     # Проверка доступности интернета для отчёта «интернет падал», сек (0 отключает)
     internet_check_interval_seconds: int = 60
 
+    # --- Здоровье диска (SMART) ---
+    # Диски через запятую, как их видит хост: /dev/nvme0n1 или /dev/sda.
+    # Требует проброса устройств в docker-compose.yml (см. README). Пусто = выкл.
+    smart_devices: str = ""
+
+    # --- Лимит заряда батареи ---
+    # Ноутбук 24/7 на зарядке убивает батарею; лимит 80% сильно продлевает ей жизнь.
+    # Требует поддержки charge_control_end_threshold ноутбуком. 0 = не трогать.
+    battery_charge_limit: int = 0
+
+    # --- Вотчер веб-сервисов ---
+    # "Метка:URL" через запятую, например "Navidrome:http://192.168.1.10:4533".
+    # Бот следит за доступностью и алертит; статус виден в /today.
+    watch_urls: str = ""
+
     @cached_property
     def allowed_ids(self) -> set[int]:
         return {int(x.strip()) for x in self.allowed_user_ids.split(",") if x.strip()}
@@ -109,6 +124,23 @@ class Settings(BaseSettings):
             label, path = item.split(":", 1)
             if label.strip() and path.strip().startswith("/"):
                 result.append((label.strip(), path.strip()))
+        return result
+
+    @cached_property
+    def smart_device_list(self) -> list[str]:
+        return [x.strip() for x in self.smart_devices.split(",") if x.strip()]
+
+    @cached_property
+    def watch_services(self) -> list[tuple[str, str]]:
+        """Список (метка, URL) для вотчера веб-сервисов."""
+        result: list[tuple[str, str]] = []
+        for item in self.watch_urls.split(","):
+            item = item.strip()
+            if not item or ":" not in item:
+                continue
+            label, url = item.split(":", 1)
+            if label.strip() and url.strip().startswith(("http://", "https://")):
+                result.append((label.strip(), url.strip()))
         return result
 
     @property

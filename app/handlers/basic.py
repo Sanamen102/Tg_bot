@@ -11,8 +11,9 @@ router = Router(name="basic")
 HELP_TEXT = """🏠 <b>HomePilot</b> — пульт управления домашним сервером.
 
 <b>Сервер</b>
-/status — CPU, RAM, swap, аптайм, диски
+/status — CPU, RAM, swap, аптайм, диски, питание
 /disk — свободное место на дисках
+/smart — SMART-здоровье дисков
 
 <b>Docker</b>
 /containers — список контейнеров и статусы

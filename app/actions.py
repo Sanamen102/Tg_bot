@@ -7,6 +7,7 @@ import asyncio
 import logging
 from datetime import date, datetime, timedelta
 
+import httpx
 from aiogram import Bot
 from aiogram.types import (
     BufferedInputFile,
@@ -82,6 +83,19 @@ async def _zapret_summary() -> str:
     return "🛡 <b>Zapret:</b> " + ("✅ активен" if active else "❌ выключен")
 
 
+async def _watch_summary() -> str:
+    parts = []
+    for label, url in settings.watch_services:
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(url)
+            ok = resp.status_code < 500
+        except httpx.HTTPError:
+            ok = False
+        parts.append(f"{'✅' if ok else '❌'} {esc(label)}")
+    return "🌐 <b>Сервисы:</b> " + " · ".join(parts)
+
+
 async def _transmission_summary() -> str:
     torrents = await TransmissionClient().torrents()
     downloading = [t for t in torrents if t.status == 4]
@@ -115,6 +129,8 @@ async def build_today_text() -> str:
         tasks.append(_safe(_zapret_summary(), "🛡 <b>Zapret:</b>"))
     if settings.transmission_url:
         tasks.append(_safe(_transmission_summary(), "⬇️ <b>Transmission:</b>"))
+    if settings.watch_services:
+        tasks.append(_safe(_watch_summary(), "🌐 <b>Сервисы:</b>"))
     parts = await asyncio.gather(*tasks)
     today = datetime.now()
     header = f"🏠 <b>HomePilot — сводка на {ru_date(today)}</b>\n"

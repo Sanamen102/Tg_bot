@@ -8,7 +8,9 @@ from aiogram.types import Message
 
 from app.config import settings
 from app.formatting import esc, human_bytes, human_duration, progress_bar
+from app.services import smart as smart_service
 from app.services import system as system_service
+from app.services.errors import ServiceError
 
 router = Router(name="system")
 
@@ -32,6 +34,8 @@ async def cmd_status(message: Message) -> None:
             if st.battery.wear_percent is not None
             else ""
         )
+        if st.battery.charge_limit and st.battery.charge_limit < 100:
+            wear += f", лимит заряда {st.battery.charge_limit}%"
         if st.battery.power_plugged:
             lines.append(f"🔌 Питание: от сети (батарея {st.battery.percent:.0f}%{wear})")
         else:
@@ -59,6 +63,37 @@ async def cmd_status(message: Message) -> None:
     else:
         lines.append("\n✅ Всё в порядке.")
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("smart"))
+async def cmd_smart(message: Message) -> None:
+    try:
+        infos = await smart_service.read_all()
+    except ServiceError as e:
+        await message.answer(f"⚠️ {esc(e.user_message)}")
+        return
+    lines = ["💽 <b>SMART-здоровье дисков</b>\n"]
+    for info in infos:
+        if info.passed is True:
+            status = "✅ PASSED"
+        elif info.passed is False:
+            status = "❌ FAILED"
+        else:
+            status = "❔ статус неизвестен"
+        lines.append(f"<b>{esc(info.device)}</b> — {esc(info.model)}")
+        details = [status]
+        if info.temperature is not None:
+            details.append(f"🌡 {info.temperature}°C")
+        if info.power_on_hours:
+            years = info.power_on_hours / 24 / 365.25
+            details.append(f"наработка {info.power_on_hours} ч (~{years:.1f} г.)")
+        if info.nvme_used_percent is not None:
+            details.append(f"ресурс SSD: изношен на {info.nvme_used_percent}%")
+        lines.append("  " + " · ".join(details))
+        for p in info.problems:
+            lines.append(f"  ⚠️ {esc(p)}")
+        lines.append("")
+    await message.answer("\n".join(lines).rstrip())
 
 
 @router.message(Command("disk"))

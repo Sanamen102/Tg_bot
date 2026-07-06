@@ -17,6 +17,9 @@ from app.config import settings
 # Датчики температуры CPU в порядке предпочтения (Intel, AMD, ARM, ACPI)
 _TEMP_SENSORS = ("coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz")
 
+# Путь sysfs с батареями (константа — подменяется в тестах)
+POWER_SUPPLY_PATH = Path("/sys/class/power_supply")
+
 
 @dataclass
 class DiskInfo:
@@ -38,11 +41,46 @@ class BatteryInfo:
     power_plugged: bool
     secsleft: int | None  # None = неизвестно или заряжается
     wear_percent: float | None = None  # износ: насколько ёмкость меньше заводской
+    charge_limit: int | None = None  # текущий лимит заряда из sysfs, если поддерживается
+
+
+def read_charge_limit() -> int | None:
+    """Текущий charge_control_end_threshold или None, если не поддерживается."""
+    try:
+        for bat in sorted(POWER_SUPPLY_PATH.glob("BAT*")):
+            f = bat / "charge_control_end_threshold"
+            if f.exists():
+                return int(f.read_text().strip())
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def apply_charge_limit(limit: int) -> bool:
+    """Выставляет лимит заряда всем батареям. False = ноутбук не поддерживает.
+
+    Пишем только при расхождении: вызов дешёвый, его можно делать регулярно —
+    так лимит переживает перезагрузку хоста (sysfs сбрасывается на 100).
+    """
+    supported = False
+    for bat in sorted(POWER_SUPPLY_PATH.glob("BAT*")):
+        f = bat / "charge_control_end_threshold"
+        if not f.exists():
+            continue
+        supported = True
+        try:
+            if int(f.read_text().strip()) != limit:
+                f.write_text(str(limit))
+        except (OSError, ValueError) as e:
+            raise PermissionError(
+                f"Не удалось записать лимит заряда в {f}: {e}"
+            ) from e
+    return supported
 
 
 def _read_battery_wear() -> float | None:
     """Износ батареи из sysfs: 100% * (1 - текущая_ёмкость / заводская)."""
-    base = Path("/sys/class/power_supply")
+    base = POWER_SUPPLY_PATH
     try:
         for bat in sorted(base.glob("BAT*")):
             for full_name, design_name in (
@@ -97,6 +135,7 @@ def get_battery() -> BatteryInfo | None:
         power_plugged=bool(batt.power_plugged),
         secsleft=secs,
         wear_percent=_read_battery_wear(),
+        charge_limit=read_charge_limit(),
     )
 
 

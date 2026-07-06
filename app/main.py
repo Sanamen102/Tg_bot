@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 BOT_COMMANDS = [
     BotCommand(command="status", description="Статус сервера"),
     BotCommand(command="disk", description="Свободное место на дисках"),
+    BotCommand(command="smart", description="SMART-здоровье дисков"),
     BotCommand(command="containers", description="Docker-контейнеры"),
     BotCommand(command="logs", description="Логи контейнера"),
     BotCommand(command="restart", description="Перезапустить контейнер"),
@@ -109,6 +110,13 @@ async def main() -> None:
             "Продолжаю запуск — polling будет пытаться переподключиться.",
             e,
         )
+
+    # Лимит заряда батареи применяем сразу при старте (и далее его
+    # поддерживает power_check — на случай перезагрузки хоста)
+    if settings.battery_charge_limit:
+        from app.monitor import _ensure_charge_limit
+
+        await _ensure_charge_limit()
 
     scheduler = setup_scheduler(bot)
     scheduler.start()

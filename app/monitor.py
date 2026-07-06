@@ -8,11 +8,13 @@ import asyncio
 import logging
 from datetime import datetime
 
+import httpx
 from aiogram import Bot
 
 from app.config import settings
 from app.formatting import esc, human_bytes, human_duration
 from app.services import docker_service
+from app.services import smart as smart_service
 from app.services import system as system_service
 from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
@@ -26,6 +28,32 @@ _active_alerts: dict[str, str] = {}
 # Состояние питания для детектора отключения света (None = ещё не знаем)
 _last_plugged: bool | None = None
 _low_battery_alerted = False
+_charge_limit_warned = False
+
+
+async def _ensure_charge_limit() -> None:
+    """Поддерживает лимит заряда: sysfs сбрасывается на 100 после ребута хоста."""
+    global _charge_limit_warned
+    if not settings.battery_charge_limit:
+        return
+    try:
+        supported = await asyncio.to_thread(
+            system_service.apply_charge_limit, settings.battery_charge_limit
+        )
+        if not supported and not _charge_limit_warned:
+            _charge_limit_warned = True
+            log.warning(
+                "BATTERY_CHARGE_LIMIT задан, но ноутбук не поддерживает "
+                "charge_control_end_threshold — лимит не применён."
+            )
+    except PermissionError as e:
+        if not _charge_limit_warned:
+            _charge_limit_warned = True
+            log.warning(
+                "%s. Проверьте, что /sys/class/power_supply смонтирован rw "
+                "в docker-compose.yml.",
+                e,
+            )
 
 
 async def power_check(bot: Bot) -> None:
@@ -35,6 +63,7 @@ async def power_check(bot: Bot) -> None:
     chat_id = settings.notify_chat_id
     if chat_id is None:
         return
+    await _ensure_charge_limit()
     battery = await asyncio.to_thread(system_service.get_battery)
     if battery is None:
         return
@@ -128,6 +157,30 @@ async def _collect_problems() -> dict[str, str]:
             )
     except Exception:
         log.exception("Мониторинг: не удалось проверить температуру")
+
+    if settings.smart_device_list:
+        try:
+            for info in await smart_service.read_all():
+                if info.problems:
+                    problems[f"smart:{info.device}"] = (
+                        f"💽 SMART {esc(info.device)} ({esc(info.model)}): "
+                        + "; ".join(esc(p) for p in info.problems)
+                    )
+        except ServiceError as e:
+            log.warning("Мониторинг SMART: %s", e.user_message)
+        except Exception:
+            log.exception("Мониторинг: не удалось проверить SMART")
+
+    for label, url in settings.watch_services:
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(url)
+            if resp.status_code >= 500:
+                problems[f"web:{label}"] = (
+                    f"🌐 Сервис «{esc(label)}» отвечает ошибкой {resp.status_code}."
+                )
+        except httpx.HTTPError:
+            problems[f"web:{label}"] = f"🌐 Сервис «{esc(label)}» недоступен."
 
     return problems
 
