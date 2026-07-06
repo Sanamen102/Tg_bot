@@ -204,8 +204,18 @@ ZAPRET_SSH_KEY_PATH=/app/ssh/id_ed25519
 ## SMART-мониторинг диска
 
 1. Узнайте имя диска на хосте: `lsblk -d -o NAME,TYPE,SIZE` (например, `nvme0n1` или `sda`).
-2. В `docker-compose.yml` раскомментируйте блок `devices`/`cap_add` у сервиса homepilot и подставьте свой диск.
-3. В `.env`: `SMART_DEVICES=/dev/nvme0n1`
+2. Создайте рядом с `docker-compose.yml` файл `docker-compose.override.yml` (он в `.gitignore`
+   и не конфликтует с `git pull`; Compose подхватывает его автоматически):
+   ```yaml
+   services:
+     homepilot:
+       devices:
+         - /dev/sda:/dev/sda      # ваш диск
+       cap_add:
+         - SYS_RAWIO              # для SATA-дисков
+         - SYS_ADMIN              # нужен для NVMe
+   ```
+3. В `.env`: `SMART_DEVICES=/dev/sda`
 4. `sudo docker compose up -d --build` (в образ ставится smartmontools).
 
 После этого `/smart` покажет здоровье диска, а фоновый мониторинг пришлёт алерт
