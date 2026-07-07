@@ -15,11 +15,15 @@ from app.services.errors import ServiceError
 
 log = logging.getLogger(__name__)
 
-# Критичные ATA-атрибуты: ненулевой raw-счётчик = плохой знак
-ATA_BAD_ATTRS = {
+# ATA-атрибуты-«состояния»: ненулевое значение — активная проблема прямо сейчас
+ATA_STATE_ATTRS = {
+    197: "Current_Pending_Sector",
+}
+# ATA-атрибуты-«счётчики»: копятся за всю жизнь диска. Ненулевое значение может
+# быть историей — тревожен только РОСТ (сравнение с базой в monitor).
+ATA_COUNTER_ATTRS = {
     5: "Reallocated_Sector_Ct",
     187: "Reported_Uncorrect",
-    197: "Current_Pending_Sector",
     198: "Offline_Uncorrectable",
 }
 
@@ -32,7 +36,15 @@ class SmartInfo:
     temperature: int | None = None
     power_on_hours: int | None = None
     nvme_used_percent: int | None = None  # израсходованный ресурс NVMe
-    problems: list[str] = field(default_factory=list)
+    # Активные состояния — алертить, пока не исчезнут
+    state_problems: list[str] = field(default_factory=list)
+    # Накопительные счётчики (имя -> raw) — алертить только при росте
+    counters: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def problems(self) -> list[str]:
+        """Всё вместе — для отображения в /smart."""
+        return self.state_problems + [f"{k} = {v}" for k, v in self.counters.items()]
 
 
 def _parse_smart(device: str, data: dict) -> SmartInfo:
@@ -43,23 +55,31 @@ def _parse_smart(device: str, data: dict) -> SmartInfo:
     info.power_on_hours = data.get("power_on_time", {}).get("hours")
 
     if info.passed is False:
-        info.problems.append("SMART-статус FAILED — диск умирает, срочно скопируйте данные!")
+        info.state_problems.append(
+            "SMART-статус FAILED — диск умирает, срочно скопируйте данные!"
+        )
 
     nvme = data.get("nvme_smart_health_information_log")
     if nvme:
         info.nvme_used_percent = nvme.get("percentage_used")
         if nvme.get("critical_warning", 0):
-            info.problems.append(f"critical_warning = {nvme['critical_warning']}")
+            info.state_problems.append(f"critical_warning = {nvme['critical_warning']}")
         if nvme.get("media_errors", 0):
-            info.problems.append(f"ошибки носителя: {nvme['media_errors']}")
+            info.counters["media_errors"] = nvme["media_errors"]
         if info.nvme_used_percent is not None and info.nvme_used_percent >= 90:
-            info.problems.append(f"ресурс SSD израсходован на {info.nvme_used_percent}%")
+            info.state_problems.append(
+                f"ресурс SSD израсходован на {info.nvme_used_percent}%"
+            )
 
     for row in data.get("ata_smart_attributes", {}).get("table", []):
-        if row.get("id") in ATA_BAD_ATTRS:
-            raw = row.get("raw", {}).get("value", 0)
-            if isinstance(raw, int) and raw > 0:
-                info.problems.append(f"{row.get('name', row['id'])} = {raw}")
+        attr_id = row.get("id")
+        raw = row.get("raw", {}).get("value", 0)
+        if not isinstance(raw, int) or raw <= 0:
+            continue
+        if attr_id in ATA_STATE_ATTRS:
+            info.state_problems.append(f"{row.get('name', ATA_STATE_ATTRS[attr_id])} = {raw}")
+        elif attr_id in ATA_COUNTER_ATTRS:
+            info.counters[row.get("name", ATA_COUNTER_ATTRS[attr_id])] = raw
 
     return info
 

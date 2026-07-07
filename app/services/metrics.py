@@ -19,7 +19,36 @@ def _connect() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS metrics ("
         "ts INTEGER PRIMARY KEY, cpu REAL, ram REAL, temp REAL)"
     )
+    # Базовые уровни накопительных SMART-счётчиков: алертим только при росте
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS smart_baseline ("
+        "device TEXT, attr TEXT, value INTEGER, PRIMARY KEY (device, attr))"
+    )
     return conn
+
+
+def get_smart_baseline(device: str, attr: str) -> int | None:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT value FROM smart_baseline WHERE device = ? AND attr = ?",
+            (device, attr),
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def set_smart_baseline(device: str, attr: str, value: int) -> None:
+    conn = _connect()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO smart_baseline (device, attr, value) VALUES (?, ?, ?)",
+                (device, attr, value),
+            )
+    finally:
+        conn.close()
 
 
 def record(cpu: float, ram: float, temp: float | None) -> None:

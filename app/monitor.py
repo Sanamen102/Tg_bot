@@ -14,6 +14,7 @@ from aiogram import Bot
 from app.config import settings
 from app.formatting import esc, human_bytes, human_duration
 from app.services import docker_service
+from app.services import metrics
 from app.services import smart as smart_service
 from app.services import system as system_service
 from app.services import tunnel as tunnel_service
@@ -111,8 +112,14 @@ async def power_check(bot: Bot) -> None:
         )
 
 
-async def _collect_problems() -> dict[str, str]:
+async def _collect_problems() -> tuple[dict[str, str], list[str]]:
+    """Возвращает (постоянные проблемы, разовые сообщения).
+
+    Постоянные живут в _active_alerts (алерт + «снова в порядке»),
+    разовые (например, рост SMART-счётчика) отправляются один раз.
+    """
     problems: dict[str, str] = {}
+    oneoffs: list[str] = []
 
     try:
         disks = await asyncio.to_thread(system_service.get_disks)
@@ -162,11 +169,37 @@ async def _collect_problems() -> dict[str, str]:
     if settings.smart_device_list:
         try:
             for info in await smart_service.read_all():
-                if info.problems:
+                # Состояния (FAILED, pending-сектора...) — обычный алерт,
+                # висит, пока проблема не исчезнет
+                if info.state_problems:
                     problems[f"smart:{info.device}"] = (
                         f"💽 SMART {esc(info.device)} ({esc(info.model)}): "
-                        + "; ".join(esc(p) for p in info.problems)
+                        + "; ".join(esc(p) for p in info.state_problems)
                     )
+                # Накопительные счётчики: сравниваем с базой в SQLite,
+                # шумим только при первом обнаружении и при росте
+                for attr, value in sorted(info.counters.items()):
+                    baseline = await asyncio.to_thread(
+                        metrics.get_smart_baseline, info.device, attr
+                    )
+                    if baseline is None:
+                        await asyncio.to_thread(
+                            metrics.set_smart_baseline, info.device, attr, value
+                        )
+                        oneoffs.append(
+                            f"💽 SMART {esc(info.device)}: {esc(attr)} = {value}. "
+                            "Зафиксировал как базовый уровень — теперь предупрежу "
+                            "только если счётчик начнёт расти."
+                        )
+                    elif value > baseline:
+                        await asyncio.to_thread(
+                            metrics.set_smart_baseline, info.device, attr, value
+                        )
+                        oneoffs.append(
+                            f"🚨 💽 SMART {esc(info.device)}: {esc(attr)} ВЫРОС "
+                            f"{baseline} → {value} — диск деградирует! "
+                            "Проверьте /smart и планируйте замену."
+                        )
         except ServiceError as e:
             log.warning("Мониторинг SMART: %s", e.user_message)
         except Exception:
@@ -193,7 +226,7 @@ async def _collect_problems() -> dict[str, str]:
         except httpx.HTTPError:
             problems[f"web:{label}"] = f"🌐 Сервис «{esc(label)}» недоступен."
 
-    return problems
+    return problems, oneoffs
 
 
 async def monitor_check(bot: Bot) -> None:
@@ -201,7 +234,10 @@ async def monitor_check(bot: Bot) -> None:
     if chat_id is None:
         return
 
-    problems = await _collect_problems()
+    problems, oneoffs = await _collect_problems()
+
+    if oneoffs:
+        await bot.send_message(chat_id, "\n\n".join(oneoffs))
 
     new_keys = set(problems) - set(_active_alerts)
     resolved_keys = set(_active_alerts) - set(problems)
