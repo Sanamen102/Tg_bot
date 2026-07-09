@@ -49,6 +49,20 @@ async def _weekly_report(bot: Bot) -> None:
         log.exception("Ошибка еженедельного отчёта")
 
 
+async def _weekly_backup(bot: Bot) -> None:
+    chat_id = settings.notify_chat_id
+    if chat_id is None:
+        return
+    try:
+        from app.handlers.backup import send_backup
+
+        await send_backup(bot, chat_id, prefix="🗓 Еженедельный ")
+    except ServiceError as e:
+        await bot.send_message(chat_id, f"⚠️ Еженедельный бэкап не получился: {e.user_message}")
+    except Exception:
+        log.exception("Ошибка еженедельного бэкапа")
+
+
 async def _record_metrics() -> None:
     try:
         st = await system_service.get_status()
@@ -132,5 +146,17 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
             name="metrics",
         )
         log.info("Запись метрик: каждые %d мин", settings.metrics_interval_minutes)
+
+    backup_at = _parse_hhmm(settings.backup_time)
+    if backup_at and settings.backup_paths:
+        scheduler.add_job(
+            _weekly_backup,
+            CronTrigger(
+                day_of_week=settings.backup_day, hour=backup_at[0], minute=backup_at[1]
+            ),
+            args=[bot],
+            name="weekly_backup",
+        )
+        log.info("Бэкап конфигов: %s %02d:%02d", settings.backup_day, *backup_at)
 
     return scheduler

@@ -16,6 +16,7 @@ BOT_COMMANDS = [
     BotCommand(command="status", description="Статус сервера"),
     BotCommand(command="smart", description="SMART-здоровье дисков"),
     BotCommand(command="graph", description="График CPU/RAM/°C"),
+    BotCommand(command="backup", description="Бэкап конфигов в чат"),
     BotCommand(command="containers", description="Docker-контейнеры"),
     BotCommand(command="logs", description="Логи контейнера"),
     BotCommand(command="restart", description="Перезапустить контейнер"),
@@ -55,6 +56,7 @@ async def main() -> None:
 
     from app.auth import AuthMiddleware
     from app.handlers import (
+        backup,
         basic,
         containers,
         digest,
@@ -99,6 +101,7 @@ async def main() -> None:
         torrents.router,
         zapret.router,
         graph.router,
+        backup.router,
         digest.router,
     )
 

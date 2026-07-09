@@ -103,6 +103,14 @@ class Settings(BaseSettings):
     metrics_retention_days: int = 14    # сколько дней хранить
     metrics_db_path: str = "data/metrics.db"
 
+    # --- Бэкап конфигов в Telegram (/backup) ---
+    # Каталоги ХОСТА через запятую, откуда собирать конфиги
+    # (бот читает их через ро-монтирование /host/root). Пусто = выкл.
+    backup_paths: str = ""
+    # Расписание еженедельного бэкапа (пустое время = только вручную)
+    backup_day: str = "sun"
+    backup_time: str = ""
+
     @cached_property
     def allowed_ids(self) -> set[int]:
         return {int(x.strip()) for x in self.allowed_user_ids.split(",") if x.strip()}
@@ -138,6 +146,10 @@ class Settings(BaseSettings):
             if label.strip() and path.strip().startswith("/"):
                 result.append((label.strip(), path.strip()))
         return result
+
+    @cached_property
+    def backup_path_list(self) -> list[str]:
+        return [x.strip() for x in self.backup_paths.split(",") if x.strip()]
 
     @cached_property
     def smart_device_list(self) -> list[str]:
