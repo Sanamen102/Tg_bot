@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from collections import deque
 from datetime import datetime
 
 from aiogram import Router
@@ -14,6 +15,19 @@ from app.services import metrics
 router = Router(name="graph")
 
 MAX_HOURS = 14 * 24
+
+
+def _smooth(values: list[float], window: int) -> list[float]:
+    """Скользящее среднее; NaN пропускаются, но не рвут окно."""
+    if window <= 1:
+        return values
+    out: list[float] = []
+    buf: deque[float] = deque(maxlen=window)
+    for v in values:
+        if v == v:  # не NaN
+            buf.append(v)
+        out.append(sum(buf) / len(buf) if buf else float("nan"))
+    return out
 
 
 def _render(rows: list[tuple], hours: int) -> bytes:
@@ -32,8 +46,13 @@ def _render(rows: list[tuple], hours: int) -> bytes:
     temp = [r[3] if r[3] is not None else float("nan") for r in rows]
     has_temp = any(r[3] is not None for r in rows)
 
+    # Точечные 5-минутные замеры дёргаются от фоновых задач — рисуем сырые
+    # данные бледной линией, а поверх — скользящее среднее за ~30 минут
+    window = max(2, round(30 / max(settings.metrics_interval_minutes, 1)))
+
     fig, ax = plt.subplots(figsize=(10, 5), dpi=110)
-    ax.plot(ts, cpu, label="CPU %", color="#1f77b4", linewidth=1.4)
+    ax.plot(ts, cpu, color="#1f77b4", linewidth=0.7, alpha=0.3)
+    ax.plot(ts, _smooth(cpu, window), label="CPU %", color="#1f77b4", linewidth=1.7)
     ax.plot(ts, ram, label="RAM %", color="#2ca02c", linewidth=1.4)
     ax.set_ylim(0, 100)
     ax.set_ylabel("%")
@@ -42,7 +61,10 @@ def _render(rows: list[tuple], hours: int) -> bytes:
     handles, labels = ax.get_legend_handles_labels()
     if has_temp:
         ax2 = ax.twinx()
-        ax2.plot(ts, temp, label="CPU °C", color="#d62728", linewidth=1.2, alpha=0.85)
+        ax2.plot(ts, temp, color="#d62728", linewidth=0.7, alpha=0.25)
+        ax2.plot(
+            ts, _smooth(temp, window), label="CPU °C", color="#d62728", linewidth=1.5
+        )
         ax2.set_ylabel("°C")
         top = max(t for t in temp if t == t)  # nan-безопасный максимум
         ax2.set_ylim(20, max(90.0, top + 10))
