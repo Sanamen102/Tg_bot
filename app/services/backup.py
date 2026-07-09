@@ -86,6 +86,10 @@ def build_archive() -> BackupResult:
                         if not _wanted(filename):
                             continue
                         path = Path(dirpath) / filename
+                        # Симлинки пропускаем: systemd-каталоги полны ссылок
+                        # в /lib хоста, который в контейнер не смонтирован
+                        if path.is_symlink():
+                            continue
                         try:
                             size = path.stat().st_size
                             if size > MAX_FILE_SIZE:
