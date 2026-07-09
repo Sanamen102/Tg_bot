@@ -43,8 +43,18 @@ def parse_ping_time(output: bytes) -> float:
     return float(match.group(1)) if match else 0.0
 
 
-async def check_awg() -> float | None:
-    """RTT до VPS через туннель; None = туннель не отвечает или не настроен."""
+async def check_awg(attempts: int = 1) -> float | None:
+    """RTT до VPS через туннель; None = туннель не отвечает или не настроен.
+
+    attempts > 1 — до N пингов с паузой: одиночная потеря пакета
+    (обычное дело для UDP-туннеля через DPI-фильтры) не считается падением.
+    """
     if not settings.awg_check_host:
         return None
-    return await icmp_ping(settings.awg_check_host)
+    for i in range(attempts):
+        rtt = await icmp_ping(settings.awg_check_host)
+        if rtt is not None:
+            return rtt
+        if i < attempts - 1:
+            await asyncio.sleep(1)
+    return None

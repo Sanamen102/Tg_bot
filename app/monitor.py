@@ -112,12 +112,17 @@ async def power_check(bot: Bot) -> None:
         )
 
 
+# Сколько циклов подряд AWG-туннель не отвечает (защита от морганий)
+_awg_fail_cycles = 0
+
+
 async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     """Возвращает (постоянные проблемы, разовые сообщения).
 
     Постоянные живут в _active_alerts (алерт + «снова в порядке»),
     разовые (например, рост SMART-счётчика) отправляются один раз.
     """
+    global _awg_fail_cycles
     problems: dict[str, str] = {}
     oneoffs: list[str] = []
 
@@ -207,9 +212,19 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
 
     if settings.awg_check_host:
         try:
-            if await tunnel_service.check_awg() is None:
+            # До 3 пингов за проверку + подтверждение несколькими циклами:
+            # короткие моргания UDP-туннеля не должны будить хозяина
+            if await tunnel_service.check_awg(attempts=3) is None:
+                _awg_fail_cycles += 1
+                if _awg_fail_cycles == 1:
+                    log.warning("AWG-туннель не ответил (цикл 1) — жду подтверждения")
+            else:
+                _awg_fail_cycles = 0
+            if _awg_fail_cycles >= settings.awg_confirm_fails:
+                minutes = _awg_fail_cycles * max(settings.monitor_interval_minutes, 1)
                 problems["awg:туннель до VPS"] = (
-                    "🔒 AWG-туннель до VPS не отвечает — доступ к дому извне не работает. "
+                    f"🔒 AWG-туннель до VPS не отвечает уже ~{minutes} мин — "
+                    "доступ к дому извне не работает. "
                     "Проверьте: systemctl status awg-quick@awg0 и awg show."
                 )
         except Exception:
