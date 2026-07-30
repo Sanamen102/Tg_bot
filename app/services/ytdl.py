@@ -32,6 +32,14 @@ SUPPORTED_HOSTS = (
     "reddit.com", "twitch.tv", "ok.ru", "coub.com",
 )
 
+# Хосты, которые у российских провайдеров не работают напрямую: Instagram
+# режется по DNS, TikTok отдаёт нашим IP страницу, которую yt-dlp не парсит.
+# Для них сразу идём через прокси, не тратя время на обречённую попытку.
+PROXY_ONLY_HOSTS = (
+    "tiktok.com", "instagram.com", "instagr.am",
+    "facebook.com", "threads.net", "twitter.com", "x.com",
+)
+
 # Лимит Telegram на отправку файла ботом — 50 МБ; берём с запасом
 TG_SIZE_LIMIT = 45 * 1024 * 1024
 DOWNLOAD_TIMEOUT = 900  # 15 минут на скачивание
@@ -82,11 +90,35 @@ async def _run(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
-def _base_args() -> list[str]:
+def _base_args(use_proxy: bool) -> list[str]:
     args = ["--no-playlist", "--no-warnings", "--socket-timeout", "30", "--retries", "3"]
-    if settings.ytdl_proxy:
+    if use_proxy and settings.ytdl_proxy:
         args += ["--proxy", settings.ytdl_proxy]
     return args
+
+
+def needs_proxy(url: str) -> bool:
+    """Сайт, который заведомо не открывается напрямую от нашего провайдера."""
+    low = url.lower()
+    return any(host in low for host in PROXY_ONLY_HOSTS)
+
+
+async def _run_smart(
+    build_args, url: str, timeout: int
+) -> tuple[int, str, str]:
+    """Запускает yt-dlp, при неудаче повторяя через прокси.
+
+    Известно заблокированные сайты сразу идут через прокси; для остальных
+    сначала пробуем напрямую (быстрее и не нагружает VPS), а если не вышло
+    и прокси настроен — делаем вторую попытку через него.
+    """
+    via_proxy = needs_proxy(url) and bool(settings.ytdl_proxy)
+    code, out, err = await _run(build_args(_base_args(via_proxy)), timeout)
+    if code == 0 or via_proxy or not settings.ytdl_proxy:
+        return code, out, err
+
+    log.info("yt-dlp: прямая попытка не удалась, пробую через прокси (%s)", url)
+    return await _run(build_args(_base_args(True)), timeout)
 
 
 def _friendly_error(stderr: str) -> str:
@@ -107,7 +139,9 @@ def _friendly_error(stderr: str) -> str:
 
 async def probe(url: str) -> MediaInfo:
     """Узнать название и длительность, не скачивая видео."""
-    code, out, err = await _run(_base_args() + ["-J", "--skip-download", url], timeout=90)
+    code, out, err = await _run_smart(
+        lambda base: base + ["-J", "--skip-download", url], url, timeout=120
+    )
     if code != 0:
         raise ServiceError(_friendly_error(err))
     try:
@@ -156,12 +190,14 @@ async def download(url: str, mode: str, dest_dir: Path | None = None) -> Downloa
         target.mkdir(parents=True, exist_ok=True)
 
     template = str(target / "%(title).70s [%(id)s].%(ext)s")
-    args = _base_args() + _format_args(mode) + [
-        "--no-progress", "--print", "after_move:filepath", "-o", template, url,
-    ]
+
+    def build(base: list[str]) -> list[str]:
+        return base + _format_args(mode) + [
+            "--no-progress", "--print", "after_move:filepath", "-o", template, url,
+        ]
 
     try:
-        code, out, err = await _run(args, timeout=DOWNLOAD_TIMEOUT)
+        code, out, err = await _run_smart(build, url, timeout=DOWNLOAD_TIMEOUT)
         if code != 0:
             if "File is larger than max-filesize" in err or "max-filesize" in err:
                 raise ServiceError(
