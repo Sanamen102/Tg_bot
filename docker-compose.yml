@@ -35,6 +35,9 @@ services:
       - ./ssh:/app/ssh:ro
       # История метрик для /graph — переживает пересборку образа
       - ./data:/app/data
+      # Медиатека: чтобы скачанные по ссылке видео (yt-dlp) попадали в Jellyfin.
+      # Путь хоста при необходимости поправьте в docker-compose.override.yml
+      - ${MEDIA_PATH:-/home/san/media}:/media
     # Для SMART-мониторинга (/smart, SMART_DEVICES в .env) раскомментируйте
     # и подставьте свой диск (узнать: lsblk -d -o NAME,TYPE,SIZE):
     # devices:

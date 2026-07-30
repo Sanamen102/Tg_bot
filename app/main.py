@@ -65,6 +65,7 @@ async def main() -> None:
         jellyfin,
         system,
         torrents,
+        ytdl,
         zapret,
     )
     from app.scheduler import setup_scheduler
@@ -103,6 +104,9 @@ async def main() -> None:
         graph.router,
         backup.router,
         digest.router,
+        # ytdl последним: он ловит любые сообщения со ссылками,
+        # поэтому команды и magnet должны разбираться раньше
+        ytdl.router,
     )
 
     # Меню команд — не критично: если Telegram сейчас недоступен,
