@@ -58,6 +58,7 @@ async def main() -> None:
     from app.handlers import (
         backup,
         basic,
+        books,
         containers,
         digest,
         graph,
@@ -103,6 +104,7 @@ async def main() -> None:
         zapret.router,
         graph.router,
         backup.router,
+        books.router,
         digest.router,
         # ytdl последним: он ловит любые сообщения со ссылками,
         # поэтому команды и magnet должны разбираться раньше
