@@ -34,16 +34,22 @@ def _safe_name(name: str) -> str:
     return name.strip() or "book"
 
 
-def _unique_path(directory: Path, name: str) -> Path:
-    path = directory / name
-    if not path.exists():
-        return path
-    stem, suffix = path.stem, path.suffix
+def _unique_path(root: Path, name: str) -> Path:
+    """Путь вида <библиотека>/<Название книги>/<файл>.
+
+    Kavita не умеет файлы в корне библиотеки («contains files at the root»),
+    каждая книга должна лежать в своей папке — её и создаём.
+    """
+    stem, suffix = Path(name).stem, Path(name).suffix
+    folder = root / stem
+    if not folder.exists():
+        return folder / name
+    # книга с таким названием уже есть — не затираем, заводим соседнюю папку
     for i in range(2, 100):
-        candidate = directory / f"{stem} ({i}){suffix}"
+        candidate = root / f"{stem} ({i})"
         if not candidate.exists():
-            return candidate
-    return directory / f"{stem} ({Path(name).stat().st_mtime:.0f}){suffix}"
+            return candidate / f"{stem} ({i}){suffix}"
+    return root / stem / name
 
 
 @router.message(F.document)
@@ -78,6 +84,7 @@ async def on_document(message: Message) -> None:
     waiting = await message.answer("📚 Сохраняю в библиотеку…")
     path = _unique_path(directory, _safe_name(doc.file_name))
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         await message.bot.download(doc, destination=path)
     except Exception:
         log.exception("Не удалось сохранить книгу")
@@ -86,6 +93,6 @@ async def on_document(message: Message) -> None:
 
     size = path.stat().st_size
     await waiting.edit_text(
-        f"✅ Книга в библиотеке: <b>{esc(path.name)}</b> ({human_bytes(size)})\n"
+        f"✅ Книга в библиотеке: <b>{esc(path.parent.name)}</b> ({human_bytes(size)})\n"
         "Появится в Kavita после сканирования папки."
     )
