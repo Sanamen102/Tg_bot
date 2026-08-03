@@ -264,7 +264,9 @@ _GALLERY_LINE = re.compile(r"^#?\s*(.+)$")
 
 async def _run_gallery(args: list[str], url: str, timeout: int) -> tuple[int, str, str]:
     """Запускает gallery-dl, добавляя прокси для заблокированных сайтов."""
-    base = ["--quiet", "--no-mtime"]
+    # ВАЖНО: без --quiet. Этот флаг глушит и вывод --simulate, по которому
+    # мы определяем, есть ли в посте картинки — с ним список всегда пуст.
+    base = ["--no-mtime"]
     # gallery-dl обслуживает в основном соцсети, которые у нас без прокси
     # и так недоступны — используем его всегда, когда прокси настроен
     if settings.ytdl_proxy:
