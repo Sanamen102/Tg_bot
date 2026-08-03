@@ -30,6 +30,9 @@ SUPPORTED_HOSTS = (
     "rutube.ru", "vimeo.com", "dailymotion.com",
     "twitter.com", "x.com",
     "reddit.com", "twitch.tv", "ok.ru", "coub.com",
+    # ниже — в основном картинки, их забирает gallery-dl
+    "pinterest.com", "pin.it", "flickr.com", "deviantart.com",
+    "boosty.to", "pikabu.ru", "9gag.com",
 )
 
 # Хосты, которые у российских провайдеров не работают напрямую: Instagram
@@ -51,6 +54,9 @@ class MediaInfo:
     duration: int | None
     uploader: str
     is_live: bool
+    # video — обычный ролик (yt-dlp), gallery — пост с картинками/слайдшоу (gallery-dl)
+    kind: str = "video"
+    count: int = 0  # сколько файлов в галерее
 
 
 @dataclass
@@ -138,11 +144,16 @@ def _friendly_error(stderr: str) -> str:
 
 
 async def probe(url: str) -> MediaInfo:
-    """Узнать название и длительность, не скачивая видео."""
+    """Узнать, что по ссылке: видео (yt-dlp) или пост с картинками (gallery-dl)."""
     code, out, err = await _run_smart(
         lambda base: base + ["-J", "--skip-download", url], url, timeout=120
     )
     if code != 0:
+        # yt-dlp умеет только видео. Посты-слайдшоу (TikTok /photo/, карусели
+        # Instagram, Pinterest) он отвергает — их подхватывает gallery-dl.
+        gallery = await gallery_probe(url)
+        if gallery is not None:
+            return gallery
         raise ServiceError(_friendly_error(err))
     try:
         data = json.loads(out)
@@ -238,5 +249,87 @@ async def download(url: str, mode: str, dest_dir: Path | None = None) -> Downloa
 def cleanup(path: Path) -> None:
     """Удаляет временный каталог со скачанным файлом."""
     parent = path.parent
-    if parent.name.startswith("ytdl-"):
+    if parent.name.startswith(("ytdl-", "gdl-")):
         shutil.rmtree(parent, ignore_errors=True)
+
+
+# ---------- Посты с картинками (gallery-dl) ----------
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
+AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".ogg", ".opus"}
+VIDEO_EXTS = {".mp4", ".mov", ".webm", ".mkv"}
+
+_GALLERY_LINE = re.compile(r"^#?\s*(.+)$")
+
+
+async def _run_gallery(args: list[str], url: str, timeout: int) -> tuple[int, str, str]:
+    """Запускает gallery-dl, добавляя прокси для заблокированных сайтов."""
+    base = ["--quiet", "--no-mtime"]
+    # gallery-dl обслуживает в основном соцсети, которые у нас без прокси
+    # и так недоступны — используем его всегда, когда прокси настроен
+    if settings.ytdl_proxy:
+        base += ["--proxy", settings.ytdl_proxy]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "gallery-dl", *base, *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        log.warning("gallery-dl не установлен")
+        return 127, "", "gallery-dl not found"
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return 1, "", "timeout"
+    return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
+
+
+def _clean_gallery_title(filename: str) -> str:
+    """Из имени файла gallery-dl достаём подпись поста.
+
+    Формат обычно: «<id>_01 текст подписи [хеш].jpg» — убираем служебное.
+    """
+    name = Path(filename).stem
+    name = re.sub(r"\s*\[[0-9a-f]{8,}\]\s*$", "", name)   # хвостовой [хеш]
+    name = re.sub(r"^\d{6,}(_\d+)?\s*", "", name)          # ведущий id поста
+    return name.strip() or "Пост с картинками"
+
+
+async def gallery_probe(url: str) -> MediaInfo | None:
+    """Проверяет, есть ли по ссылке картинки. None — gallery-dl тоже не смог."""
+    code, out, _ = await _run_gallery(["--simulate", url], url, timeout=90)
+    if code != 0:
+        return None
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    files = [_GALLERY_LINE.match(line).group(1) for line in lines if _GALLERY_LINE.match(line)]
+    media = [f for f in files if Path(f).suffix.lower() in IMAGE_EXTS | VIDEO_EXTS]
+    if not media:
+        return None
+    return MediaInfo(
+        title=_clean_gallery_title(media[0]),
+        duration=None,
+        uploader="",
+        is_live=False,
+        kind="gallery",
+        count=len(media),
+    )
+
+
+async def gallery_download(url: str) -> list[Path]:
+    """Скачивает все файлы поста во временный каталог."""
+    tmp_dir = Path(tempfile.mkdtemp(prefix="gdl-"))
+    code, _, err = await _run_gallery(
+        ["-D", str(tmp_dir), url], url, timeout=DOWNLOAD_TIMEOUT
+    )
+    files = sorted(p for p in tmp_dir.iterdir() if p.is_file())
+    if not files:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise ServiceError(
+            "Не удалось скачать вложения поста"
+            + (f": {err.strip().splitlines()[-1][:150]}" if err.strip() else ".")
+        )
+    if code != 0:
+        log.warning("gallery-dl вернул код %s, но файлы есть — продолжаем", code)
+    return files

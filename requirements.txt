@@ -8,4 +8,6 @@ asyncssh>=2.14  # управление zapret на хосте по SSH
 pydantic-settings>=2.3
 tzdata>=2024.1
 matplotlib>=3.8  # график /graph
-yt-dlp>=2025.1   # скачивание видео по ссылке
+yt-dlp>=2025.1     # скачивание видео по ссылке
+gallery-dl>=1.29   # картинки и слайдшоу (TikTok /photo/, карусели Instagram)
+PySocks>=1.7       # SOCKS-прокси для gallery-dl

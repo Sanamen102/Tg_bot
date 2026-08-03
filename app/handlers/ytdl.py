@@ -15,6 +15,7 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaPhoto,
     Message,
 )
 
@@ -28,6 +29,45 @@ router = Router(name="ytdl")
 
 _pending: OrderedDict[str, str] = OrderedDict()
 _PENDING_MAX = 20
+
+
+ALBUM_LIMIT = 10                     # Telegram: не больше 10 медиа в альбоме
+PHOTO_LIMIT = 10 * 1024 * 1024       # больше — отправляем файлом, а не фото
+
+
+async def _send_gallery(msg: Message, files: list) -> None:
+    """Отправляет содержимое поста: картинки альбомами, видео и звук отдельно."""
+    images = [f for f in files if f.suffix.lower() in ytdl.IMAGE_EXTS]
+    videos = [f for f in files if f.suffix.lower() in ytdl.VIDEO_EXTS]
+    audios = [f for f in files if f.suffix.lower() in ytdl.AUDIO_EXTS]
+
+    try:
+        await msg.edit_text(f"📤 Отправляю ({len(images) + len(videos)} файлов)…")
+        # крупные картинки Telegram как фото не примет — шлём документом
+        big = [p for p in images if p.stat().st_size > PHOTO_LIMIT]
+        small = [p for p in images if p.stat().st_size <= PHOTO_LIMIT]
+
+        for start in range(0, len(small), ALBUM_LIMIT):
+            chunk = small[start : start + ALBUM_LIMIT]
+            if len(chunk) == 1:
+                await msg.answer_photo(FSInputFile(chunk[0]))
+            else:
+                await msg.answer_media_group(
+                    [InputMediaPhoto(media=FSInputFile(p)) for p in chunk]
+                )
+        for path in big:
+            await msg.answer_document(FSInputFile(path))
+        for path in videos:
+            await msg.answer_video(FSInputFile(path), supports_streaming=True)
+        for path in audios:
+            await msg.answer_audio(FSInputFile(path), title=path.stem[:64])
+        await msg.delete()
+    except Exception:
+        log.exception("Не удалось отправить галерею")
+        await msg.edit_text("⚠️ Скачалось, но Telegram не принял файлы.")
+    finally:
+        if files:
+            ytdl.cleanup(files[0])
 
 
 @router.message(F.text.func(lambda t: bool(ytdl.find_url(t or ""))))
@@ -51,6 +91,21 @@ async def on_link(message: Message) -> None:
     _pending[token] = url
     while len(_pending) > _PENDING_MAX:
         _pending.popitem(last=False)
+
+    if info.kind == "gallery":
+        rows = [
+            [InlineKeyboardButton(text="📱 Прислать в чат", callback_data=f"yt:{token}:gallery")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"yt:{token}:x")],
+        ]
+        lines = [
+            f"🖼 <b>{esc(info.title)}</b>",
+            f"Пост с картинками: {info.count} шт.",
+            "\nЧто сделать?",
+        ]
+        await waiting.edit_text(
+            "\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+        return
 
     rows = [
         [InlineKeyboardButton(text="📱 Видео в чат", callback_data=f"yt:{token}:chat")],
@@ -103,6 +158,20 @@ async def on_choice(callback: CallbackQuery) -> None:
     await callback.answer()
     msg = callback.message
     if msg is None:
+        return
+
+    if mode == "gallery":
+        await msg.edit_text("⏳ Скачиваю картинки…")
+        try:
+            files = await ytdl.gallery_download(url)
+        except ServiceError as e:
+            await msg.edit_text(f"⚠️ {esc(e.user_message)}")
+            return
+        except Exception:
+            log.exception("Ошибка скачивания галереи")
+            await msg.edit_text("⚠️ Внутренняя ошибка, подробности в логах бота.")
+            return
+        await _send_gallery(msg, files)
         return
 
     labels = {"chat": "видео", "audio": "звук", "library": "видео в медиатеку"}
