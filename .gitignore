@@ -1,5 +1,7 @@
 .env
 xray/config.json
+mieru/config.yaml
+mieru/providers/
 docker-compose.override.yml
 data/
 ssh/

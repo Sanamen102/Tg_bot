@@ -18,6 +18,7 @@ from app.services import metrics
 from app.services import smart as smart_service
 from app.services import system as system_service
 from app.services import tunnel as tunnel_service
+from app.services import vpn as vpn_service
 from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
 from app.services.transmission import TransmissionClient
@@ -115,6 +116,9 @@ async def power_check(bot: Bot) -> None:
 # Сколько циклов подряд AWG-туннель не отвечает (защита от морганий)
 _awg_fail_cycles = 0
 
+# То же для VPN-сервера: сколько циклов подряд его порт молчит из дома
+_vpn_fail_cycles = 0
+
 
 async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     """Возвращает (постоянные проблемы, разовые сообщения).
@@ -122,7 +126,7 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     Постоянные живут в _active_alerts (алерт + «снова в порядке»),
     разовые (например, рост SMART-счётчика) отправляются один раз.
     """
-    global _awg_fail_cycles
+    global _awg_fail_cycles, _vpn_fail_cycles
     problems: dict[str, str] = {}
     oneoffs: list[str] = []
 
@@ -229,6 +233,36 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
                 )
         except Exception:
             log.exception("Мониторинг: не удалось проверить AWG-туннель")
+
+    if settings.vpn_check_port:
+        try:
+            # Стучимся из дома напрямую: если порт молчит отсюда, но сервер
+            # при этом жив — значит адрес попал под блокировку у провайдера.
+            # Это надо узнавать самому, а не из жалоб «у меня не работает».
+            if await vpn_service.probe_port(settings.vpn_check_port):
+                _vpn_fail_cycles = 0
+            else:
+                _vpn_fail_cycles += 1
+                if _vpn_fail_cycles == 1:
+                    log.warning("VPN-порт не ответил (цикл 1) — жду подтверждения")
+            if _vpn_fail_cycles >= settings.vpn_confirm_fails:
+                minutes = _vpn_fail_cycles * max(settings.monitor_interval_minutes, 1)
+                problems["vpn:порт"] = (
+                    f"🔐 VPN-сервер не отвечает из дома уже ~{minutes} мин. "
+                    "Если сам сервер жив — скорее всего его адрес заблокировали. "
+                    "Статус: /vpn, переезд: /vpn_server новый_адрес"
+                )
+            elif settings.vpn_sub_port and not await vpn_service.probe_port(
+                settings.vpn_sub_port
+            ):
+                # Раздача подписок отдельным алертом: без неё люди не получат
+                # новый адрес при переезде, даже если сам VPN работает
+                problems["vpn:подписки"] = (
+                    "🔐 Раздача подписок VPN не отвечает — при смене сервера "
+                    "клиенты не смогут забрать новый адрес. Проверьте /vpn"
+                )
+        except Exception:
+            log.exception("Мониторинг: не удалось проверить VPN")
 
     for label, url in settings.watch_services:
         try:

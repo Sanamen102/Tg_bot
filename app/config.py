@@ -59,6 +59,22 @@ class Settings(BaseSettings):
     zapret_ssh_user: str = ""
     zapret_ssh_key_path: str = "/app/ssh/id_ed25519"
 
+    # --- Управление VPN (mieru на VPS) ---
+    # Бот ходит на VPS по SSH с forced command: ключ прибит к обёртке
+    # vpn-bot-ctl и ничего кроме неё выполнить не может.
+    # Пустой vpn_ssh_host выключает функцию целиком.
+    vpn_ssh_host: str = ""
+    vpn_ssh_port: int = 22
+    vpn_ssh_user: str = "root"
+    vpn_ssh_key_path: str = "/app/ssh/id_ed25519_vpn"
+    # Проверка «а видно ли VPN из дома»: бот TCP-стучится на порт mieru
+    # и на порт подписок. Именно так блокировка IP и обнаруживается —
+    # раньше, чем начнут жаловаться люди. 0 = не проверять.
+    vpn_check_port: int = 0
+    vpn_sub_port: int = 8080
+    # Сколько циклов мониторинга подряд порт должен молчать перед алертом
+    vpn_confirm_fails: int = 2
+
     # --- Расписание ---
     daily_memory_time: str = "09:00"   # "HH:MM", пустая строка отключает
     weekly_report_day: str = "sun"      # mon/tue/wed/thu/fri/sat/sun
@@ -113,7 +129,7 @@ class Settings(BaseSettings):
     # смонтирован из ~/media). Пусто = кнопка не показывается.
     ytdl_library_dir: str = "/media/youtube"
     # Прокси для yt-dlp, если сайт блокируется провайдером.
-    # Например socks5://xray:1080 (тот же, что для Telegram). Пусто = напрямую.
+    # Например socks5://mieru:1080 (тот же, что для Telegram). Пусто = напрямую.
     ytdl_proxy: str = ""
 
     # --- Бэкап конфигов в Telegram (/backup) ---
@@ -184,6 +200,10 @@ class Settings(BaseSettings):
     @property
     def zapret_enabled(self) -> bool:
         return bool(self.zapret_ssh_user)
+
+    @property
+    def vpn_enabled(self) -> bool:
+        return bool(self.vpn_ssh_host and self.vpn_ssh_user)
 
     @cached_property
     def notify_chat_id(self) -> int | None:

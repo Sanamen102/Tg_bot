@@ -1,16 +1,21 @@
 services:
-  # SOCKS5-мост до Telegram через XRay (VLESS + Reality), например до Amnezia-сервера.
-  # Настройка: cp xray/config.json.example xray/config.json и заполнить свои значения.
-  # Бот ходит на него по внутренней сети: TELEGRAM_PROXY=socks5://xray:1080
-  xray:
-    image: ghcr.io/xtls/xray-core:latest
-    container_name: homepilot-xray
+  # SOCKS5-мост наружу через mieru (клиент — mihomo, он же Clash.Meta).
+  # У mieru нет TLS-хендшейка и SNI, поэтому ТСПУ нечего фингерпринтить —
+  # в отличие от VLESS+Reality, который в 2026 режется по поведению.
+  # Настройка: cp mieru/config.yaml.example mieru/config.yaml и вписать свои логин/пароль.
+  # Бот ходит на него по внутренней сети: TELEGRAM_PROXY=socks5://mieru:1080
+  mieru:
+    image: metacubex/mihomo:latest
+    container_name: homepilot-mieru
     restart: unless-stopped
-    command: ["run", "-c", "/etc/xray/config.json"]
     volumes:
-      - ./xray/config.json:/etc/xray/config.json:ro
+      - ./mieru/config.yaml:/root/.config/mihomo/config.yaml:ro
+      # Кэш подписки: сюда mihomo складывает последнюю удачную загрузку,
+      # чтобы подняться даже когда сервер подписок недоступен. Нужен rw.
+      - ./mieru/providers:/root/.config/mihomo/providers
     ports:
-      # Только для локальной отладки с хоста (curl --socks5-hostname 127.0.0.1:1080)
+      # Для отладки с хоста и для tv-vpn, который ходит сюда как в socks5-аплинк
+      # (curl --socks5-hostname 127.0.0.1:1080)
       - "127.0.0.1:1080:1080"
 
   homepilot:

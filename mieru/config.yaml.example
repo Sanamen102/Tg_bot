@@ -1,0 +1,44 @@
+mixed-port: 1080
+
+# Нужно, чтобы до прокси достучались другие контейнеры и tv-vpn с хоста.
+# Наружу порт всё равно выставлен только на 127.0.0.1 в docker-compose.yml.
+allow-lan: true
+bind-address: '*'
+
+mode: rule
+log-level: warning
+ipv6: false
+
+# DNS не поднимаем: правило одно и оно без IP-условий, поэтому mihomo отдаёт
+# домен прокси как есть, а резолвит его уже сервер. Меньше утечек и меньше
+# шансов упереться в подменённый DNS у российского провайдера.
+dns:
+  enable: false
+
+# Сервер берём из подписки, а не прописываем руками. Тогда при переезде на
+# новый VPN достаточно одной команды на сервере (`mieru-user server <ip>` или
+# /vpn_server в боте) — мост подхватит новый адрес сам, лезть сюда не нужно.
+proxy-providers:
+  vpn:
+    type: http
+    url: "ССЫЛКА_НА_ПОДПИСКУ"
+    interval: 3600
+    # Локальный кэш последней удачной загрузки. Критично: если подписка
+    # недоступна (например, её сервер лёг), контейнер поднимется на кэше
+    # и туннель продолжит работать. Проверено.
+    path: ./providers/vpn.yaml
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com/generate_204
+      interval: 300
+
+proxy-groups:
+  - name: "VPN"
+    type: fallback
+    use:
+      - vpn
+    url: http://cp.cloudflare.com/generate_204
+    interval: 300
+
+rules:
+  - MATCH,VPN
