@@ -31,7 +31,9 @@ VPS_HOST = os.environ.get("VPN_MIRROR_HOST", "147.45.72.72")
 VPS_USER = os.environ.get("VPN_MIRROR_USER", "root")
 SSH_KEY = os.environ.get("VPN_MIRROR_KEY", "/home/san/Tg_bot/ssh/id_ed25519_vpn")
 OUT_DIR = os.environ.get("VPN_MIRROR_OUT", "/home/san/vpn-mirror/www")
-LAN_URL = os.environ.get("VPN_MIRROR_LAN_URL", "http://192.168.101.7:8090")
+# Постоянный адрес раздачи. Живёт на домашнем сервере, поэтому переживает
+# любую смену VPN-сервера — именно он и выдаётся людям.
+PUBLIC_URL = os.environ.get("VPN_MIRROR_PUBLIC_URL", "http://192.168.101.7:8090")
 FETCH_TIMEOUT = 20
 
 
@@ -151,21 +153,22 @@ def render(users, generated):
              "<h1>Конфиги VPN</h1>",
              '<div class="sub">Резервная раздача с домашнего сервера. '
              'Не зависит ни от Telegram, ни от доступности VPS.</div>',
-             '<div class="warn">Локальные ссылки на подписку работают только из '
-             'домашней сети. Для тех, кто вне дома, отдавайте внешнюю ссылку.</div>']
+             '<div class="warn">Основная ссылка раздаётся с домашнего сервера и '
+             'работает откуда угодно. Она не изменится при смене VPN-сервера — '
+             'выдавайте людям именно её.</div>']
     for u in users:
         name = html.escape(u["name"])
         token = u["sub"].rsplit("/", 1)[1] if u.get("sub") else ""
-        local = "%s/sub/%s" % (LAN_URL, token) if token else ""
+        local = "%s/sub/%s" % (PUBLIC_URL, token) if token else ""
         parts.append('<div class="u">')
         parts.append('<div class="qrs">')
         if local:
             parts.append('<div class="qr"><img src="qr/%s-local.png" width="118" height="118" '
-                         'alt="QR локальной подписки %s"><b>Из дома</b>локальная копия</div>'
+                         'alt="QR основной подписки %s"><b>Основная</b>постоянный адрес</div>'
                          % (name, name))
         if u.get("sub"):
             parts.append('<div class="qr"><img src="qr/%s-remote.png" width="118" height="118" '
-                         'alt="QR внешней подписки %s"><b>Снаружи</b>через VPS</div>'
+                         'alt="QR запасной подписки %s"><b>Запасная</b>напрямую с VPS</div>'
                          % (name, name))
         parts.append("</div>")
         parts.append('<div class="col">')
@@ -173,10 +176,10 @@ def render(users, generated):
         parts.append('<div class="meta">%s &middot; скачано %s &middot; отдано %s</div>'
                      % (ago(u.get("lastActive")), mb(u.get("down")), mb(u.get("up"))))
         if local:
-            parts.append('<div class="lab">Локальная подписка (из дома, QR ведёт сюда)</div>')
+            parts.append('<div class="lab">Основная подписка — её и выдавайте</div>')
             parts.append('<div class="l">%s</div>' % html.escape(local))
         if u.get("sub"):
-            parts.append('<div class="lab">Внешняя подписка</div>')
+            parts.append('<div class="lab">Запасная, напрямую с VPS</div>')
             parts.append('<div class="l">%s</div>' % html.escape(u["sub"]))
         if u.get("link"):
             parts.append('<div class="lab">Прямая ссылка (запасной вариант)</div>')
@@ -229,7 +232,7 @@ def main():
         token = u["sub"].rsplit("/", 1)[1] if u.get("sub") else ""
         targets = {}
         if token:
-            targets["%s-local" % u["name"]] = "%s/sub/%s" % (LAN_URL, token)
+            targets["%s-local" % u["name"]] = "%s/sub/%s" % (PUBLIC_URL, token)
         if u.get("sub"):
             targets["%s-remote" % u["name"]] = u["sub"]
         if not targets and u.get("link"):
