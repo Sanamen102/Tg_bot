@@ -123,6 +123,10 @@ PAGE_HEAD = """<!doctype html>
  .sub{color:#666;font-size:14px;margin-bottom:20px}
  .u{background:#fff;border:1px solid #e3e0d8;border-radius:10px;padding:14px;margin-bottom:14px;
     display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+ .qrs{display:flex;gap:10px;flex-shrink:0}
+ .qr{text-align:center;font-size:11px;color:#666;width:118px}
+ .qr img{display:block;margin-bottom:3px}
+ .qr b{display:block;font-weight:500;color:#1a1a1a;font-size:12px}
  .u h2{font-size:17px;font-weight:500;margin:0 0 6px}
  .meta{color:#666;font-size:13px;margin-bottom:10px}
  .l{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#f4f2ee;
@@ -136,8 +140,8 @@ PAGE_HEAD = """<!doctype html>
  footer{color:#888;font-size:12px;margin-top:22px;border-top:1px solid #e3e0d8;padding-top:12px}
  @media(prefers-color-scheme:dark){
   body{background:#1c1b19;color:#eee} .u{background:#252320;border-color:#3a3733}
-  .l{background:#1c1b19;border-color:#3a3733;color:#ddd} .sub,.meta,.lab,footer{color:#999}
-  .warn{background:#2e2716;border-color:#4d4122}}
+  .l{background:#1c1b19;border-color:#3a3733;color:#ddd} .sub,.meta,.lab,footer,.qr{color:#999}
+  .qr b{color:#eee} .warn{background:#2e2716;border-color:#4d4122}}
 </style>
 """
 
@@ -154,7 +158,16 @@ def render(users, generated):
         token = u["sub"].rsplit("/", 1)[1] if u.get("sub") else ""
         local = "%s/sub/%s" % (LAN_URL, token) if token else ""
         parts.append('<div class="u">')
-        parts.append('<img src="qr/%s.png" width="132" height="132" alt="QR %s">' % (name, name))
+        parts.append('<div class="qrs">')
+        if local:
+            parts.append('<div class="qr"><img src="qr/%s-local.png" width="118" height="118" '
+                         'alt="QR локальной подписки %s"><b>Из дома</b>локальная копия</div>'
+                         % (name, name))
+        if u.get("sub"):
+            parts.append('<div class="qr"><img src="qr/%s-remote.png" width="118" height="118" '
+                         'alt="QR внешней подписки %s"><b>Снаружи</b>через VPS</div>'
+                         % (name, name))
+        parts.append("</div>")
         parts.append('<div class="col">')
         parts.append("<h2>%s</h2>" % name)
         parts.append('<div class="meta">%s &middot; скачано %s &middot; отдано %s</div>'
@@ -209,11 +222,20 @@ def main():
     for token, body in subs.items():
         put(os.path.join("sub", token), body)
         written.add(os.path.join("sub", token))
+    # Два QR на человека: локальный работает только из дома, внешний — откуда
+    # угодно, пока жив VPS. Кому какой давать, зависит от того, где он сидит,
+    # поэтому показываем оба и подписываем.
     for u in users:
         token = u["sub"].rsplit("/", 1)[1] if u.get("sub") else ""
-        payload = "%s/sub/%s" % (LAN_URL, token) if token else (u.get("link") or "")
-        if payload:
-            rel = os.path.join("qr", "%s.png" % u["name"])
+        targets = {}
+        if token:
+            targets["%s-local" % u["name"]] = "%s/sub/%s" % (LAN_URL, token)
+        if u.get("sub"):
+            targets["%s-remote" % u["name"]] = u["sub"]
+        if not targets and u.get("link"):
+            targets["%s-local" % u["name"]] = u["link"]
+        for stem, payload in targets.items():
+            rel = os.path.join("qr", "%s.png" % stem)
             put(rel, qr_png(payload))
             written.add(rel)
     put("index.html", render(users, datetime.now().strftime("%d.%m.%Y %H:%M")))
