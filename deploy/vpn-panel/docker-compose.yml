@@ -1,0 +1,28 @@
+services:
+  # Панель управления VPN. Раздачу подписок НЕ обслуживает: /sub/ отдаёт
+  # статикой контейнер vpn-mirror, чтобы конфиги оставались доступны, даже
+  # когда панель или VPS лежат.
+  vpn-panel:
+    build: .
+    image: vpn-panel:latest
+    container_name: vpn-panel
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8091:8091"
+    volumes:
+      # Тот же ключ, что у бота: второго пути к VPS не заводим.
+      - /home/san/Tg_bot/ssh/id_ed25519_vpn:/app/ssh/id_ed25519_vpn:ro
+      - ./ssh_known_hosts:/root/.ssh/known_hosts:ro
+    environment:
+      VPN_PANEL_HOST: "${VPN_PANEL_HOST:-147.45.72.72}"
+      VPN_PANEL_USER: "root"
+      VPN_PANEL_KEY: "/app/ssh/id_ed25519_vpn"
+      VPN_PANEL_PASSWORD_HASH: "${VPN_PANEL_PASSWORD_HASH:?нужен sha256-хеш пароля}"
+      VPN_PANEL_SECRET: "${VPN_PANEL_SECRET:?нужен секрет для подписи сессий}"
+      TZ: "${TZ:-Asia/Yekaterinburg}"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8091/healthz')"]
+      interval: 60s
+      timeout: 5s
+      retries: 3

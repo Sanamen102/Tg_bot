@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — VPN{% endblock %}
+
+{% block header %}
+<header>
+  <h1>{{ name }}</h1>
+  <span class="sp"></span>
+  <a href="{{ url_for('index') }}">← ко всем</a>
+</header>
+{% endblock %}
+
+{% block body %}
+
+<div class="card">
+  <h2>Подписка — это и надо отдавать человеку</h2>
+  <p class="mono" style="margin:0 0 12px">{{ sub }}</p>
+  <img src="{{ url_for('qr', d=sub) }}" alt="QR-код подписки"
+       style="width:200px;height:200px;background:#fff;border-radius:8px;padding:8px">
+  <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+    Ссылка постоянная: она ведёт на этот сайт, поэтому переживёт смену
+    VPN-сервера. В клиенте её добавляют как подписку, а не как отдельный профиль —
+    иначе новый адрес не подтянется автоматически.
+  </p>
+</div>
+
+<div class="card">
+  <h2>Прямая ссылка — на случай, если клиент не понимает подписки</h2>
+  <p class="mono muted" style="margin:0">{{ link }}</p>
+  <p class="muted" style="font-size:12.5px;margin:12px 0 0">
+    Эта форма привязана к текущему адресу VPS: при переезде перестанет
+    работать, и человека придётся переподключать руками. Поэтому по
+    возможности выдавайте подписку сверху.
+  </p>
+</div>
+
+<div class="card">
+  <h2>Отозвать доступ</h2>
+  <form method="post" action="{{ url_for('delete') }}"
+        onsubmit="return confirm('Точно отозвать доступ у «{{ name }}»?')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="name" value="{{ name }}">
+    <button class="danger" type="submit">Отозвать доступ</button>
+  </form>
+</div>
+{% endblock %}

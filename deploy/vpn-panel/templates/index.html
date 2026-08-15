@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}VPN — управление{% endblock %}
+
+{% block header %}
+<header>
+  <h1>VPN</h1>
+  {% if status.ok %}
+    <span class="pill {{ 'on' if status.running else 'off' }}">
+      {{ 'сервер работает' if status.running else 'сервер лежит' }}</span>
+    <code class="muted">{{ status.host }}</code>
+  {% else %}
+    <span class="pill off">VPS недоступен</span>
+  {% endif %}
+  <span class="sp"></span>
+  <form method="post" action="{{ url_for('logout') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="ghost" type="submit">Выйти</button>
+  </form>
+</header>
+{% endblock %}
+
+{% block body %}
+
+{% if not status.ok %}
+  <div class="msg err">
+    Не достучались до VPS: {{ status.error }}.<br>
+    Раздача подписок при этом продолжает работать — она отдаётся с этого
+    сервера и от VPS не зависит.
+  </div>
+{% else %}
+  <div class="card">
+    <div class="grid">
+      <div class="kv"><b>{{ status.users }}</b><span>пользователей</span></div>
+      <div class="kv"><b>{{ status.connections }}</b><span>соединений</span></div>
+      <div class="kv"><b>{{ status.tcpSockets }}</b><span>TCP-сокетов</span></div>
+      <div class="kv"><b>{{ status.udpSockets }}</b><span>UDP-сокетов</span></div>
+      <div class="kv"><b>{{ status.portRange }}</b><span>порты</span></div>
+      <div class="kv"><b>{{ status.mtu }}</b><span>MTU</span></div>
+    </div>
+  </div>
+{% endif %}
+
+<div class="card">
+  <h2>Люди</h2>
+  {% if users.ok %}
+    <div class="tw">
+    <table>
+      <tr><th>Имя</th><th>Заходил</th><th class="num">Скачал</th>
+          <th class="num">Отдал</th><th></th></tr>
+      {% for u in users.users %}
+      <tr>
+        <td><a href="{{ url_for('user', name=u.name) }}"><b>{{ u.name }}</b></a></td>
+        <td class="muted">{{ u.lastActive | when }}</td>
+        <td class="num">{{ u.down | bytes }}</td>
+        <td class="num">{{ u.up | bytes }}</td>
+        <td style="text-align:right">
+          <form method="post" action="{{ url_for('delete') }}" style="display:inline"
+                onsubmit="return confirm('Отозвать доступ у «{{ u.name }}»? Он сразу перестанет подключаться.')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="name" value="{{ u.name }}">
+            <button class="danger" type="submit">Отозвать</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+  {% else %}
+    <p class="muted">Список недоступен: {{ users.error }}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Выдать доступ</h2>
+  <form method="post" action="{{ url_for('add') }}" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="text" name="name" placeholder="имя латиницей" required
+           pattern="[A-Za-z0-9_-]{1,32}" style="flex:1;max-width:280px">
+    <button type="submit">Создать</button>
+  </form>
+  <p class="muted" style="font-size:12.5px;margin:10px 0 0">
+    Латиница, цифры, дефис и подчёркивание, до 32 символов. Порты человек
+    получает свои — блокировка чужих портов его не заденет.
+  </p>
+</div>
+
+<div class="card">
+  <h2>Переезд на другой сервер</h2>
+  <form method="post" action="{{ url_for('server') }}" class="row"
+        onsubmit="return confirm('Переписать все подписки на новый адрес?')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="text" name="addr" placeholder="адрес нового VPS"
+           style="flex:1;max-width:280px">
+    <button class="ghost" type="submit">Переписать подписки</button>
+  </form>
+  <p class="muted" style="font-size:12.5px;margin:10px 0 0">
+    Ссылки у людей не изменятся — они ведут на этот сайт, а не на VPN-сервер.
+    Клиенты подтянут новый адрес при следующем обновлении подписки.
+  </p>
+</div>
+
+<div class="foot">Раздача подписок отдаётся статикой и переживает падение VPS и этой панели.</div>
+{% endblock %}
