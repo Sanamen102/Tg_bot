@@ -1,0 +1,7 @@
+[Unit]
+Description=Periodically guard tv-vpn tproxy rules
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=2min
+[Install]
+WantedBy=timers.target

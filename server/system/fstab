@@ -1,0 +1,42 @@
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/ubuntu-vg/ubuntu-lv during curtin installation
+/dev/disk/by-id/dm-uuid-LVM-CB2eZeoIXEdHAAC4BOaOBtmpY8Ea2YxmNSwBaat98JnhN3QWJvdynpqB5VpRdrdq / ext4 defaults 0 1
+# /boot was on /dev/nvme0n1p2 during curtin installation
+/dev/disk/by-uuid/62ce39a1-52dd-4095-8693-a0b098f5e87f /boot ext4 defaults 0 1
+# /boot/efi was on /dev/nvme0n1p1 during curtin installation
+/dev/disk/by-uuid/72C6-2135 /boot/efi vfat defaults 0 1
+/swap.img	none	swap	sw	0	0
+UUID=39770891-027d-4d53-8651-b1564c62b82e /mnt/storage ext4 defaults,noatime 0 2
+
+# Данные лежат на 4-терабайтнике, но пути должны совпадать со старым сервером:
+# на /home/san/media и /home/san/immich-app ссылаются compose-файлы, .env бота
+# и UPLOAD_LOCATION Immich. Bind вместо симлинков — docker с ними надёжнее.
+/mnt/storage/immich-app  /home/san/immich-app  none  bind  0 0
+/mnt/storage/media       /home/san/media       none  bind  0 0
+
+# --- Пул медиатеки из старых дисков (14.08.2026) ---
+# disk1 — WD5000LPVX, здоровый (4414 ч, ноль ошибок), пишем только сюда.
+# disk2 — ST500DM002, 77835 ч, 8 нечитаемых секторов: подключён только на
+# чтение, чтобы новые файлы на него не попадали. nofail — чтобы смерть
+# диска не мешала серверу загрузиться.
+UUID=a82ad47f-a7e7-4bcb-b80e-9d1e8b341372  /mnt/disk1  ext4  defaults,noatime,nofail  0 2
+UUID=716a637f-0fbf-4db6-925f-445413229532  /mnt/disk2  ext4  defaults,noatime,nofail  0 2
+# Пул: файл целиком лежит на одном диске, поэтому смерть диска уносит
+# только его фильмы. disk2 в режиме RO — читаем, но не пишем.
+/mnt/disk1=RW:/mnt/disk2=RO /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs,minfreespace=10G,moveonenospc=true,fsname=mediapool,nofail,x-systemd.requires-mounts-for=/mnt/disk1 0 0
+# Jellyfin и Transmission ходят в /home/san/media, поэтому пул приходит
+# в привычные пути — трогать пути в compose и .env не нужно.
+/mnt/pool/movie  /home/san/media/movie  none  bind,nofail,x-systemd.requires-mounts-for=/mnt/pool  0 0
+/mnt/pool/show   /home/san/media/show   none  bind,nofail,x-systemd.requires-mounts-for=/mnt/pool  0 0
+/mnt/pool/music  /home/san/media/music  none  bind,nofail,x-systemd.requires-mounts-for=/mnt/pool  0 0
+# Transmission качает в incomplete и только потом перекладывает в movie/show.
+# Обе папки обязаны быть в пуле: иначе закачка идёт на 4-терабайтник, а
+# готовый файл переезжает между дисками физическим копированием.
+/mnt/pool/incomplete  /home/san/media/incomplete  none  bind,nofail,x-systemd.requires-mounts-for=/mnt/pool  0 0
+/mnt/pool/complete    /home/san/media/complete    none  bind,nofail,x-systemd.requires-mounts-for=/mnt/pool  0 0

@@ -1,0 +1,6 @@
+[Unit]
+Description=Guard tv-vpn tproxy routing rules
+After=vpn-routing.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vpn-guard.sh

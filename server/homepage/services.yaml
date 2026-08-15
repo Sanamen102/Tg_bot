@@ -1,0 +1,125 @@
+- Медиа:
+    - Jellyfin:
+        icon: jellyfin.svg
+        href: http://192.168.101.7:8096
+        description: Фильмы и сериалы
+        server: my-docker
+        container: jellyfin
+        widgets:
+          - type: jellyfin
+            url: http://192.168.101.7:8096
+            key: "ЗАМЕНИТЬ_КЛЮЧОМ"
+            enableBlocks: true
+            enableNowPlaying: false
+          - type: customapi
+            url: http://192.168.101.7:8096/Items?ParentId=9997817c3349e7577039013dfbcebd16&Recursive=true&IncludeItemTypes=Video
+            method: GET
+            headers:
+              X-Emby-Token: ЗАМЕНИТЬ_КЛЮЧОМ
+            mappings:
+              - field: TotalRecordCount
+                label: домашних роликов
+    - Kavita:
+        icon: kavita.svg
+        href: http://192.168.101.7:5000
+        description: Книги и PDF
+        server: my-docker
+        container: kavita
+    - Immich:
+        icon: immich.svg
+        href: http://192.168.101.7:2283
+        description: Фотоархив
+        server: my-docker
+        container: immich_server
+        widget:
+          type: immich
+          url: http://192.168.101.7:2283
+          key: "ЗАМЕНИТЬ_КЛЮЧОМ"
+          version: 2
+    - Transmission:
+        icon: transmission.svg
+        href: http://192.168.101.7:9091
+        description: Закачки
+        server: my-docker
+        container: transmission
+        widget:
+          type: transmission
+          url: http://192.168.101.7:9091
+
+- Инфраструктура:
+    - AdGuard Home:
+        icon: adguard-home.svg
+        href: http://192.168.101.7:8083
+        description: DNS-фильтр рекламы
+        server: my-docker
+        container: adguardhome
+    - Dozzle:
+        icon: dozzle.svg
+        href: http://192.168.101.7:8888
+        description: Логи контейнеров
+        server: my-docker
+        container: dozzle
+    - HomePilot:
+        icon: telegram.svg
+        href: https://t.me/DevOpsNotificationStdExt01433bot
+        description: Telegram-бот сервера
+        server: my-docker
+        container: homepilot
+    - Agrodom:
+        icon: nginx.svg
+        href: http://192.168.101.7:8080
+        description: Сайт
+        server: my-docker
+        container: agrodom-site
+
+- Снаружи:
+    - Immich:
+        icon: immich.svg
+        href: https://photo.aepozhidaev.ru
+        description: Фотоархив через домен
+    - Jellyfin:
+        icon: jellyfin.svg
+        href: https://tv.aepozhidaev.ru
+        description: Медиасервер через домен
+    - Панель VPN:
+        icon: mdi-shield-key-#5b9cf8
+        href: https://pult.aepozhidaev.ru
+        description: Управление доступом вне дома
+    - Подписки:
+        icon: mdi-link-variant-#7b8697
+        description: sub.aepozhidaev.ru/sub/токен — только по ссылке
+
+
+- Служебное:
+    - Панель VPN:
+        icon: mdi-shield-key-#5b9cf8
+        href: http://192.168.101.7:8091
+        description: Кто подключён, выдать и отозвать доступ
+        server: my-docker
+        container: vpn-panel
+    - Раздача подписок:
+        icon: mdi-file-download-outline-#7b8697
+        description: Статика конфигов, живёт без VPS и панели
+        server: my-docker
+        container: vpn-mirror
+    - Точка входа:
+        icon: nginx.svg
+        href: http://192.168.101.7
+        description: nginx, разводит домены по именам
+        server: my-docker
+        container: web
+    - Watchtower:
+        icon: watchtower.svg
+        description: Автообновление контейнеров
+        server: my-docker
+        container: watchtower
+    - Мост Telegram:
+        icon: mdi-bridge-#0088cc
+        description: SOCKS5 до Telegram через mieru
+        server: my-docker
+        container: homepilot-mieru
+    - VPN для ТВ:
+        icon: xray.svg
+        description: TPROXY-клиент селективного VPN
+        server: my-docker
+        container: tv-vpn-xray

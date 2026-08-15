@@ -1,0 +1,22 @@
+# Система на NVMe, все данные — на 4-терабайтнике, поэтому дисков два.
+- resources:
+    label: сервер
+    cpu: true
+    memory: true
+    cputemp: true
+    uptime: true
+    units: metric
+- resources:
+    label: система
+    disk: /
+- resources:
+    label: хранилище
+    disk: /mnt/storage
+- resources:
+    label: медиапул
+    disk: /mnt/pool
+- datetime:
+    text_size: xl
+    format:
+      timeStyle: short
+      dateStyle: long

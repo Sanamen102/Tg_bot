@@ -1,0 +1,14 @@
+[Unit]
+Description=tv-vpn TPROXY routing (kitchen TV via Amnezia)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/san/tv-vpn/up.sh
+ExecStop=/home/san/tv-vpn/down.sh
+
+[Install]
+WantedBy=multi-user.target

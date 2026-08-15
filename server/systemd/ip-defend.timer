@@ -1,0 +1,7 @@
+[Unit]
+Description=Periodically defend server static IP
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=60
+[Install]
+WantedBy=timers.target

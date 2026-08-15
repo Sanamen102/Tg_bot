@@ -1,0 +1,8 @@
+services:
+  site:
+    build: .
+    image: agrodom-site:latest
+    container_name: agrodom-site
+    ports:
+      - "8080:80"   # сайт будет на http://IP-сервера:8080 (можно сменить на "80:80")
+    restart: unless-stopped

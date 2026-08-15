@@ -1,0 +1,16 @@
+# AdGuard Home — DNS-фильтр рекламы для всей сети.
+# Веб-интерфейс/мастер настройки: http://192.168.101.7:8083
+# DNS слушает ТОЛЬКО на 192.168.101.7:53 (не конфликтует с systemd-resolved
+# на 127.0.0.53). Устройствам/роутеру указывать DNS = 192.168.101.7.
+services:
+  adguardhome:
+    image: adguard/adguardhome:latest
+    container_name: adguardhome
+    restart: unless-stopped
+    ports:
+      - "192.168.101.7:53:53/tcp"
+      - "192.168.101.7:53:53/udp"
+      - "8083:3000"
+    volumes:
+      - ./work:/opt/adguardhome/work
+      - ./conf:/opt/adguardhome/conf

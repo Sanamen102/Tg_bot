@@ -1,0 +1,12 @@
+- Управление:
+    - Роутер:
+        - abbr: RT
+          href: http://192.168.101.1
+    - Логи:
+        - abbr: LOG
+          href: http://192.168.101.7:8888
+
+- Проекты:
+    - HomePilot:
+        - abbr: GH
+          href: https://github.com/Sanamen102/Tg_bot

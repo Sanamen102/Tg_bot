@@ -1,0 +1,24 @@
+services:
+  # Главный риск при выставлении сервисов наружу — не сама долбёжка сканеров,
+  # а окно между публикацией уязвимости и обновлением. Массовая эксплуатация
+  # начинается в первые сутки-трое после раскрытия, поэтому окно надо
+  # схлопывать автоматически, а не «когда руки дойдут».
+  #
+  # Обновляются только контейнеры с меткой watchtower.enable=true — чтобы
+  # ничего не поехало само по себе без разбора.
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      # Образ watchtower собран со старым клиентом Docker API (1.25),
+      # а свежий демон требует минимум 1.40 и просто отвергает запросы.
+      # Без этой строки обновлятор молча не работает вообще.
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_CLEANUP=true          # убирать старые образы, иначе диск утечёт
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_SCHEDULE=0 0 5 * * *  # каждый день в 5 утра
+      - TZ=Asia/Yekaterinburg
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

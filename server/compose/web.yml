@@ -1,0 +1,17 @@
+services:
+  # Единая точка входа снаружи. Порты 80 и 443 проброшены с роутера сюда,
+  # дальше разводим по именам хостов — лазить в роутер под каждый сервис
+  # больше не нужно.
+  web:
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    image: nginx:alpine
+    container_name: web
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./geo:/etc/nginx/geo:ro
+      - ./acme:/var/www/acme:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./letsencrypt:/etc/letsencrypt:ro

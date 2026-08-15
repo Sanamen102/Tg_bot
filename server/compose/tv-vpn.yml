@@ -1,0 +1,29 @@
+services:
+  # Туннель наружу: mieru через mihomo. Отдельный от бота, чтобы перезапуск
+  # одного стека не ронял другой. Наружу торчит только на 127.0.0.1.
+  mieru:
+    image: metacubex/mihomo:latest
+    container_name: tv-vpn-mieru
+    restart: unless-stopped
+    volumes:
+      - ./mieru.yaml:/root/.config/mihomo/config.yaml:ro
+      - ./providers:/root/.config/mihomo/providers
+    ports:
+      - "127.0.0.1:1081:1081"
+
+  xray-tproxy:
+    image: ghcr.io/xtls/xray-core:latest
+    container_name: tv-vpn-xray
+    restart: unless-stopped
+    network_mode: host
+    user: "0:0"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - apparmor=unconfined
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./config.json:/etc/xray/config.json:ro
+    depends_on:
+      - mieru

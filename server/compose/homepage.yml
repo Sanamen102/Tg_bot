@@ -1,0 +1,17 @@
+# Homepage — стартовая страница сервера: http://192.168.101.7:8082
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    ports:
+      - "8082:3000"
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: "*"
+    volumes:
+      - ./config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Виджет «хранилище» читает свободное место с 4-терабайтника,
+      # без этого монтирования он отдаёт «Ошибка API».
+      - /mnt/storage:/mnt/storage:ro
+      - /mnt/pool:/mnt/pool:ro
