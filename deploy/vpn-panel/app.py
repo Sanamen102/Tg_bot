@@ -27,6 +27,7 @@ from flask import (Flask, abort, flash, redirect, render_template, request,
 VPS_HOST = os.environ.get("VPN_PANEL_HOST", "147.45.72.72")
 VPS_USER = os.environ.get("VPN_PANEL_USER", "root")
 SSH_KEY = os.environ.get("VPN_PANEL_KEY", "/app/ssh/id_ed25519_vpn")
+LOGIN = os.environ.get("VPN_PANEL_LOGIN", "admin")
 PASSWORD_HASH = os.environ.get("VPN_PANEL_PASSWORD_HASH", "")
 SSH_TIMEOUT = int(os.environ.get("VPN_PANEL_SSH_TIMEOUT", "60"))
 
@@ -149,8 +150,11 @@ def login():
         if blocked(ip):
             flash("Слишком много попыток. Подождите пять минут.", "err")
             return render_template("login.html"), 429
+        # Логин сверяем тем же compare_digest, что и пароль: сравнение по
+        # времени не должно подсказывать, угадано ли имя.
+        name_ok = hmac.compare_digest(request.form.get("login", ""), LOGIN)
         given = hashlib.sha256(request.form.get("password", "").encode()).hexdigest()
-        if PASSWORD_HASH and hmac.compare_digest(given, PASSWORD_HASH):
+        if PASSWORD_HASH and name_ok and hmac.compare_digest(given, PASSWORD_HASH):
             session.clear()
             session["auth"] = True
             session["csrf"] = secrets.token_urlsafe(32)
@@ -159,7 +163,7 @@ def login():
             return redirect(request.args.get("next") or url_for("index"))
         note_fail(ip)
         app.logger.warning("неудачный вход с %s", ip)
-        flash("Неверный пароль", "err")
+        flash("Неверный логин или пароль", "err")
     return render_template("login.html")
 
 

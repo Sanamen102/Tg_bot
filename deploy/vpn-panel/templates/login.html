@@ -3,10 +3,14 @@
 {% block body %}
 <div class="card" style="max-width:380px;margin:12vh auto 0">
   <h2>Управление VPN</h2>
-  <form method="post" class="row" style="flex-wrap:nowrap">
-    <input type="password" name="password" placeholder="Пароль" autofocus
-           autocomplete="current-password" style="flex:1">
-    <button type="submit">Войти</button>
+  <form method="post">
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <input type="text" name="login" placeholder="Логин" autofocus
+             autocomplete="username" required>
+      <input type="password" name="password" placeholder="Пароль"
+             autocomplete="current-password" required>
+      <button type="submit">Войти</button>
+    </div>
   </form>
   <p class="muted" style="font-size:12.5px;margin:12px 0 0">
     После пяти неудачных попыток вход блокируется на пять минут.
