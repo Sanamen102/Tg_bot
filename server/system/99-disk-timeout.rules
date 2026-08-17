@@ -1,4 +1,0 @@
-# ST500DM002 (Z3TW986E) сыпется: 8 нечитаемых секторов. По умолчанию ядро
-# ждёт ответа 30 секунд — на битом секторе это вешает воспроизведение и
-# листинг каталогов в пуле. Семь секунд превращают зависание в заикание.
-ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*[!0-9]", ENV{ID_SERIAL_SHORT}=="Z3TW986E", ATTR{device/timeout}="7", RUN+="/usr/sbin/smartctl -l scterc,70,70 /dev/%k"

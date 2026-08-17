@@ -21,15 +21,13 @@ UUID=39770891-027d-4d53-8651-b1564c62b82e /mnt/storage ext4 defaults,noatime 0 2
 /mnt/storage/media       /home/san/media       none  bind  0 0
 
 # --- Пул медиатеки из старых дисков (14.08.2026) ---
-# disk1 — WD5000LPVX, здоровый (4414 ч, ноль ошибок), пишем только сюда.
-# disk2 — ST500DM002, 77835 ч, 8 нечитаемых секторов: подключён только на
-# чтение, чтобы новые файлы на него не попадали. nofail — чтобы смерть
-# диска не мешала серверу загрузиться.
+# disk1 — WD5000LPVX, здоровый (4414 ч, ноль ошибок).
+# Второй диск (ST500DM002, 78 тыс. часов) отключён физически 16.08.2026 —
+# отжил своё. nofail оставлен: смерть диска не должна мешать загрузке.
 UUID=a82ad47f-a7e7-4bcb-b80e-9d1e8b341372  /mnt/disk1  ext4  defaults,noatime,nofail  0 2
-UUID=716a637f-0fbf-4db6-925f-445413229532  /mnt/disk2  ext4  defaults,noatime,nofail  0 2
 # Пул: файл целиком лежит на одном диске, поэтому смерть диска уносит
-# только его фильмы. disk2 в режиме RO — читаем, но не пишем.
-/mnt/disk1=RW:/mnt/disk2=RO /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs,minfreespace=10G,moveonenospc=true,fsname=mediapool,nofail,x-systemd.requires-mounts-for=/mnt/disk1 0 0
+# только его фильмы, а не весь пул.
+/mnt/disk1=RW /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs,minfreespace=10G,moveonenospc=true,fsname=mediapool,nofail,x-systemd.requires-mounts-for=/mnt/disk1 0 0
 # Jellyfin и Transmission ходят в /home/san/media, поэтому пул приходит
 # в привычные пути — трогать пути в compose и .env не нужно.
 /mnt/pool/movie  /home/san/media/movie  none  bind,nofail,x-systemd.requires-mounts-for=/mnt/pool  0 0
