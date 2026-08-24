@@ -23,14 +23,20 @@ import sys
 import urllib.request
 from pathlib import Path
 
-ALBUM_NAME = os.environ.get('SYNC_ALBUM', 'Sony')
-DEST = Path(os.environ.get('SYNC_DEST', '/home/san/media/home'))
+# Альбомов может быть несколько — через запятую. Раньше поддерживался
+# ровно один, и добавление второго молча выключало первый.
+ALBUM_NAMES = [a.strip() for a in os.environ.get('SYNC_ALBUM', 'Sony').split(',') if a.strip()]
+DEST = Path(os.environ.get('SYNC_DEST', '/mnt/storage/media/home'))
 ENV_FILE = Path('/home/san/Tg_bot/.env')
 STATE = Path('/var/lib/immich-jellyfin-sync.json')
 
 # путь внутри контейнера immich -> путь на хосте
 CONTAINER_PREFIX = '/usr/src/app/upload'
-HOST_PREFIX = '/home/san/immich-app/library'
+# Пути идут через /mnt/storage, а не через /home/san: это одна и та же
+# файловая система, но /home/san/media и /home/san/immich-app —
+# отдельные bind-монтирования, а ядро не даёт делать жёсткие ссылки
+# через границу точки монтирования. Внутри /mnt/storage граница одна.
+HOST_PREFIX = '/mnt/storage/immich-app/library'
 
 
 def read_env() -> dict:
@@ -148,22 +154,36 @@ def main() -> int:
     mismatched = set(state.get('mismatched', []))
 
     albums = api_get(url, key, '/albums')
-    album = next((a for a in albums if a['albumName'] == ALBUM_NAME), None)
-    if album is None:
-        print(f'альбом «{ALBUM_NAME}» не найден')
+    found = [a for a in albums if a['albumName'] in ALBUM_NAMES]
+    missing = [n for n in ALBUM_NAMES if not any(a['albumName'] == n for a in found)]
+    if missing:
+        # Не падаем из-за одного опечатанного имени: остальные альбомы
+        # синхронизировать всё равно надо.
+        print('не найдены альбомы: ' + ', '.join(f'«{m}»' for m in missing))
+    if not found:
         return 1
 
     # видео альбома (в v3 список файлов достаётся поиском, не из самого альбома)
-    videos, page = [], 1
-    while True:
-        res = api_post(url, key, '/search/metadata', {
-            'albumIds': [album['id']], 'type': 'VIDEO', 'size': 500, 'page': page,
-        })
-        items = res.get('assets', {}).get('items', [])
-        videos.extend(items)
-        if len(items) < 500:
-            break
-        page += 1
+    # Каждый альбом опрашиваем отдельно: Immich понимает список albumIds
+    # как пересечение, а не объединение. Передать два сразу — значит
+    # получить только видео, лежащие в обоих, то есть обычно пустоту.
+    videos, seen = [], set()
+    for alb in found:
+        page = 1
+        while True:
+            res = api_post(url, key, '/search/metadata', {
+                'albumIds': [alb['id']], 'type': 'VIDEO', 'size': 500, 'page': page,
+            })
+            items = res.get('assets', {}).get('items', [])
+            for it in items:
+                # Одно видео может лежать в нескольких альбомах —
+                # ссылку на него делаем один раз.
+                if it.get('id') not in seen:
+                    seen.add(it.get('id'))
+                    videos.append(it)
+            if len(items) < 500:
+                break
+            page += 1
 
     DEST.mkdir(parents=True, exist_ok=True)
     created, merged, errors = [], [], []
@@ -226,7 +246,7 @@ def main() -> int:
             errors.append(f'{dst.name}: {e.strerror}')
 
     freed = sum(s for _, s in merged)
-    print(f'альбом «{ALBUM_NAME}»: видео {len(videos)}, новых ссылок {len(created)}, '
+    print(f'альбомы: {', '.join(a['albumName'] for a in found)} — видео {len(videos)}, новых ссылок {len(created)}, '
           f'схлопнуто дублей {len(merged)}, уже было {skipped}, ошибок {len(errors)}')
     for name, size in created:
         print(f'  + {size/1024**3:.2f} ГБ  {name}')
@@ -239,7 +259,7 @@ def main() -> int:
         refreshed = jellyfin_refresh(env) if created else False
         lines = []
         if created:
-            lines.append(f'🎬 В медиатеку добавлено видео из альбома «{ALBUM_NAME}»: {len(created)} шт.')
+            lines.append(f'🎬 В медиатеку добавлено видео: {len(created)} шт.')
             for name, size in created[:8]:
                 lines.append(f'  • {name} ({size/1024**3:.2f} ГБ)')
             if len(created) > 8:
@@ -254,7 +274,7 @@ def main() -> int:
         notify(env, '\n'.join(lines))
 
     STATE.write_text(json.dumps({
-        'album': ALBUM_NAME, 'videos': len(videos),
+        'albums': [a['albumName'] for a in found], 'videos': len(videos),
         'linked_now': len(created), 'merged_now': len(merged),
         'mismatched': sorted(mismatched),
     }, ensure_ascii=False), encoding='utf-8')
