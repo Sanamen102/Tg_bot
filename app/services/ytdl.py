@@ -135,6 +135,14 @@ def _friendly_error(stderr: str) -> str:
         return "Видео приватное или требует входа в аккаунт."
     if "unavailable" in low or "not available" in low:
         return "Видео недоступно (удалено или заблокировано по региону)."
+    if "403" in low and ("forbidden" in low or "unable to download video data" in low):
+        # Метаданные читаются, а потоки отдают 403 — почти всегда это устаревший
+        # yt-dlp: YouTube меняет подпись ссылок раз в несколько недель.
+        return (
+            "YouTube отклонил ссылки на видеопотоки (403). Обычно это значит, что "
+            "yt-dlp устарел — его ломают раз в несколько недель. Лечится обновлением: "
+            "docker exec homepilot pip install -U yt-dlp && docker restart homepilot"
+        )
     if "unsupported url" in low:
         return "Эта ссылка не поддерживается."
     if "timed out" in low or "timeout" in low or "connection" in low:
