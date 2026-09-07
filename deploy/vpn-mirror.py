@@ -34,6 +34,7 @@ OUT_DIR = os.environ.get("VPN_MIRROR_OUT", "/home/san/vpn-mirror/www")
 # Постоянный адрес раздачи. Живёт на домашнем сервере, поэтому переживает
 # любую смену VPN-сервера — именно он и выдаётся людям.
 PUBLIC_URL = os.environ.get("VPN_MIRROR_PUBLIC_URL", "http://192.168.101.7:8090")
+SUB_PORT = int(os.environ.get("VPN_MIRROR_SUB_PORT", "8080"))
 FETCH_TIMEOUT = 20
 
 
@@ -68,6 +69,19 @@ def fetch_users():
     if not users:
         fail("VPS вернул пустой список пользователей")
     return users
+
+
+def direct_url(sub_url):
+    """Прямой адрес подписки на VPS.
+
+    В ответе VPS поле sub — это постоянная ссылка для людей, то есть адрес
+    этого же зеркала. Идти по ней означало бы качать файл у самого себя:
+    для только что заведённого человека его тут ещё нет, приходит 404, и
+    синхронизация отменяется целиком — вместе с конфигами всех остальных.
+    Поэтому берём из ссылки только токен и стучимся к VPS напрямую.
+    """
+    token = sub_url.rstrip("/").rsplit("/", 1)[1]
+    return "http://%s:%d/%s" % (VPS_HOST, SUB_PORT, token)
 
 
 def fetch_sub(url):
@@ -196,7 +210,7 @@ def main():
     subs = {}
     for u in users:
         if u.get("sub"):
-            subs[u["sub"].rsplit("/", 1)[1]] = fetch_sub(u["sub"])
+            subs[u["sub"].rstrip("/").rsplit("/", 1)[1]] = fetch_sub(direct_url(u["sub"]))
 
     # Всё собрано успешно — только теперь трогаем то, что отдаётся наружу.
     #

@@ -50,6 +50,16 @@ def link(cfg, meta, name, pw):
 
 
 def suburl(meta, token):
+    """Ссылка, которую получает человек.
+
+    Если в мете задан publicUrl - постоянный адрес раздачи, живущий отдельно
+    от VPN-сервера, - выдаём его. Смысл в переезде: адрес VPS меняется, а
+    ссылка у человека остаётся прежней, и обходить никого не нужно. Прямая
+    ссылка на VPS остаётся запасным вариантом, когда publicUrl не задан.
+    """
+    base = meta.get("publicUrl")
+    if base:
+        return "%s/%s" % (base.rstrip("/"), token)
     return "http://%s:%d/%s" % (meta["host"], meta["subPort"], token)
 
 

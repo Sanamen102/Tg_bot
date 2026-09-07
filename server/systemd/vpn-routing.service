@@ -1,0 +1,16 @@
+[Unit]
+Description=HomePilot selective VPN routing (nft sets + tproxy)
+After=network-online.target docker.service
+Wants=network-online.target
+Before=dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/san/tv-vpn/vpn.sh telegram
+ExecStart=/home/san/tv-vpn/meta.sh
+ExecStart=/home/san/tv-vpn/meta.sh
+ExecStop=/home/san/tv-vpn/vpn.sh off
+
+[Install]
+WantedBy=multi-user.target

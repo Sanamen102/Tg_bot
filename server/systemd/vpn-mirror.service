@@ -1,0 +1,14 @@
+[Unit]
+Description=Зеркало конфигов VPN на домашнем сервере
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=san
+Environment=VPN_MIRROR_PUBLIC_URL=https://sub.aepozhidaev.ru
+WorkingDirectory=/home/san/vpn-mirror
+ExecStart=/home/san/vpn-mirror/venv/bin/python /home/san/vpn-mirror/sync.py
+# Скрипт при недоступности VPS выходит с ошибкой и НЕ трогает готовую копию.
+# Поэтому неудачный прогон — это норма, а не повод чинить юнит.
+SuccessExitStatus=0

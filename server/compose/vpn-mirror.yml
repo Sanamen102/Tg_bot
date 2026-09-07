@@ -1,0 +1,21 @@
+services:
+  # Резервная раздача конфигов с домашнего сервера. Работает независимо от
+  # Telegram и от доступности VPS — на случай, когда основной канал недоступен
+  # ровно тогда, когда нужнее всего.
+  vpn-mirror:
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    image: nginx:alpine
+    container_name: vpn-mirror
+    restart: unless-stopped
+    # Панель живёт на хосте, а не в этой сети — нужен путь к нему.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Порт нужен только nginx на хосте, чтобы забирать подписки.
+      # В локальной сети его не публикуем: панель отвечает на 8091.
+      - "127.0.0.1:8090:80"
+    volumes:
+      - ./www:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.htpasswd:/etc/nginx/.htpasswd:ro

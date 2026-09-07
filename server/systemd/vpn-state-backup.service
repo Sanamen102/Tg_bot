@@ -1,0 +1,10 @@
+[Unit]
+Description=Бэкап состояния VPN с VPS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# От san, а не root: здесь лежат ключ к VPS и каталог с бэкапами.
+User=san
+ExecStart=/usr/local/sbin/vpn-state-backup.sh

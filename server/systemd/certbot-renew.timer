@@ -1,0 +1,12 @@
+[Unit]
+Description=Проверка продления сертификатов
+
+[Timer]
+# Дважды в сутки со случайным разбросом — так рекомендует Let's Encrypt,
+# чтобы не создавать пик нагрузки на их серверы в круглый час
+OnCalendar=*-*-* 03,15:00:00
+RandomizedDelaySec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

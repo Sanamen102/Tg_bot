@@ -13,7 +13,7 @@ CONF = "/root/mieru-server.json"
 META = "/root/mieru-meta.json"
 NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
 HOST_RE = re.compile(r"^[a-zA-Z0-9.-]{3,64}$")
-ACTIONS = {"status", "users", "add", "del", "link", "sub", "server"}
+ACTIONS = {"status", "users", "add", "del", "link", "sub", "server", "state"}
 
 
 def out(**kw):
@@ -149,6 +149,16 @@ def main():
         if rc != 0:
             fail("не удалось удалить: %s" % o.strip()[:200])
         out(ok=True, name=arg, left=len(cfg["users"]) - 1)
+
+    if action == "state":
+        # Отдаём оба файла состояния целиком — из них домашний сервер
+        # собирает бэкап, а из бэкапа поднимается новый VPS с теми же
+        # логинами и токенами.
+        #
+        # Прав это не расширяет: пароль пользователя и так виден в его
+        # подписке, а её ключ уже умеет получать действием sub. Записать
+        # что-либо действие по-прежнему не позволяет.
+        out(ok=True, server=cfg, meta=meta)
 
     if action == "server":
         if not arg or not HOST_RE.match(arg):

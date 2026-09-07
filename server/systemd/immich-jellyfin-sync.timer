@@ -1,0 +1,7 @@
+[Unit]
+Description=Periodically sync Immich album videos to Jellyfin
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+[Install]
+WantedBy=timers.target

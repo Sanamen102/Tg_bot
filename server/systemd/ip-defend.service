@@ -1,0 +1,6 @@
+[Unit]
+Description=Defend server static IP against DHCP hijack (gratuitous ARP)
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ip-defend.sh

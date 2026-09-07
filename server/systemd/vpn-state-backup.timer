@@ -1,0 +1,11 @@
+[Unit]
+Description=Ежедневный бэкап состояния VPN
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+# Сервер может спать или быть выключен в это время — тогда заберём позже.
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

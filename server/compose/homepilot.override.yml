@@ -1,0 +1,6 @@
+services:
+  homepilot:
+    devices:
+      - /dev/sda:/dev/sda
+    cap_add:
+      - SYS_RAWIO

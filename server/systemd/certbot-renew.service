@@ -1,0 +1,13 @@
+[Unit]
+Description=Продление сертификатов Let's Encrypt
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm \
+  -v /home/san/web/acme:/var/www/acme \
+  -v /home/san/web/letsencrypt:/etc/letsencrypt \
+  certbot/certbot renew --webroot -w /var/www/acme --quiet
+# Новый сертификат подхватывается только после перечитывания конфига
+ExecStartPost=-/usr/bin/docker exec web nginx -s reload

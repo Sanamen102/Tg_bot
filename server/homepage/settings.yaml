@@ -1,0 +1,15 @@
+title: Домашний сервер
+language: ru
+theme: dark
+color: slate
+headerStyle: boxed
+hideVersion: true
+layout:
+  Медиа:
+    columns: 4
+  Снаружи:
+    columns: 4
+  Инфраструктура:
+    columns: 4
+  Служебное:
+    columns: 3

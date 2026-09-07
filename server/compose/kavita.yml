@@ -1,0 +1,16 @@
+# Kavita — библиотека книг и PDF с читалкой в браузере.
+# Прогресс чтения хранится на сервере, поэтому синхронизируется между
+# всеми устройствами сам: начал на ПК — продолжил на телефоне.
+# Веб: http://192.168.101.7:5000 (первый вход создаёт админа)
+services:
+  kavita:
+    image: jvmilazz0/kavita:latest
+    container_name: kavita
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      TZ: ${TZ:-Asia/Yekaterinburg}
+    volumes:
+      - ./config:/kavita/config
+      - /home/san/media/books:/books

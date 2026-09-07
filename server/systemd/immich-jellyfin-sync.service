@@ -1,0 +1,8 @@
+[Unit]
+Description=Link videos from an Immich album into the Jellyfin library
+After=docker.service
+[Service]
+Type=oneshot
+Environment="SYNC_ALBUM=Sony,Домашние видео"
+Environment=SYNC_DEST=/mnt/storage/media/home
+ExecStart=/usr/local/sbin/immich-jellyfin-sync.py

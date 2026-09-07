@@ -1,0 +1,8 @@
+network:
+  version: 2
+  ethernets:
+    any:
+      match:
+        name: "en*"
+      optional: true
+      dhcp4: true
