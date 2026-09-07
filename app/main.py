@@ -137,6 +137,15 @@ async def main() -> None:
 
         await _ensure_charge_limit()
 
+    # Отчёт о простое — до планировщика: если сервер только что подняли
+    # после отключения света, об этом стоит сказать первым делом.
+    try:
+        from app.monitor import downtime_report
+
+        await downtime_report(bot)
+    except Exception:
+        log.exception("Не удалось отчитаться о простое")
+
     scheduler = setup_scheduler(bot)
     scheduler.start()
 

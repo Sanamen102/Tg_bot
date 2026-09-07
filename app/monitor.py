@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 
 import httpx
+import psutil
 from aiogram import Bot
 
 from app.config import settings
@@ -394,3 +395,50 @@ async def internet_check(bot: Bot) -> None:
             _net_outage_start = datetime.now()
         if _net_fail_count == _NET_CONFIRM_FAILS:
             log.warning("Интернет недоступен с %s", _net_outage_start)
+
+
+# Порог, ниже которого простой считаем штатной перезагрузкой. Метрики
+# пишутся раз в несколько минут, поэтому даже у обычного ребута между
+# последней точкой и загрузкой набегает несколько минут разрыва.
+DOWNTIME_MIN_SECONDS = 10 * 60
+
+
+async def downtime_report(bot: Bot) -> None:
+    """После запуска сообщить, сколько сервера не было.
+
+    Заменяет прежний детектор «выключили свет»: тот следил за переходом
+    ноутбука на аккумулятор, а у нынешней машины батареи нет — при
+    пропаже питания она гаснет мгновенно и предупредить не успевает.
+    Поэтому отчитываемся задним числом: сравниваем время последней
+    записи метрик с моментом загрузки хоста.
+    """
+    chat_id = settings.notify_chat_id
+    if chat_id is None:
+        return
+
+    last = await asyncio.to_thread(metrics.last_ts)
+    if last is None:
+        return
+
+    boot = psutil.boot_time()
+    gap = boot - last
+    # Отрицательный разрыв — перезапустился сам бот, хост при этом работал.
+    if gap < DOWNTIME_MIN_SECONDS:
+        return
+
+    fmt = "%d.%m в %H:%M"
+    await bot.send_message(
+        chat_id,
+        "⚡ <b>Сервер не работал " + human_duration(gap) + "</b>\n"
+        "Пропал " + datetime.fromtimestamp(last).strftime(fmt) + ", "
+        "поднялся " + datetime.fromtimestamp(boot).strftime(fmt) + ".\n\n"
+        "Скорее всего отключали свет. Аккумулятора у сервера нет, "
+        "поэтому сообщить в тот момент было некому.",
+    )
+
+    # Закрываем разрыв сразу: иначе повторный запуск бота до первой
+    # плановой записи метрик прислал бы тот же отчёт ещё раз.
+    st = await system_service.get_status()
+    await asyncio.to_thread(
+        metrics.record, st.cpu_percent, st.ram_percent, st.cpu_temp
+    )

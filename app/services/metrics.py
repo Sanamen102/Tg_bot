@@ -76,3 +76,19 @@ def fetch(since_ts: int) -> list[tuple[int, float, float, float | None]]:
         return cur.fetchall()
     finally:
         conn.close()
+
+
+def last_ts() -> int | None:
+    """Время последней записанной точки метрик.
+
+    Нужно, чтобы понять, когда сервер был жив в последний раз. Детектор
+    «выключили свет» по аккумулятору на этой машине не работает — батареи
+    нет, и при пропаже питания она гаснет молча. Остаётся узнавать о
+    простое задним числом, сравнивая эту отметку с моментом загрузки.
+    """
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT MAX(ts) FROM metrics").fetchone()
+        return row[0] if row and row[0] else None
+    finally:
+        conn.close()
