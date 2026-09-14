@@ -13,7 +13,7 @@
 | Каталог | Что там |
 |---|---|
 | `nginx/` | виртуалхосты: `photo`, `tv`, `sub`, `pult`, дефолтный обработчик и внутренний конфиг зеркала |
-| `systemd/` | наши юниты и таймеры: NAT-шлюз, tv-vpn, зеркало подписок, синк Immich↔Jellyfin, продление сертификатов, zapret |
+| `systemd/` | наши юниты и таймеры: NAT-шлюз, tv-vpn, зеркало подписок, синк Immich↔Jellyfin, продление сертификатов, zapret, блокировка QUIC к Google (`quicblock`), еженедельное обновление yt-dlp (`ytdl-update`) |
 | `compose/` | по файлу на каждый сервис: Immich, Jellyfin, Transmission, AdGuard, Kavita, дашборд, панель VPN и прочие |
 | `sbin/` | скрипты хоста из `/usr/local/sbin` и обёртка `zapret-ctl` |
 | `homepage/` | конфигурация дашборда |

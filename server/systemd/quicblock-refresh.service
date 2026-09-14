@@ -1,0 +1,12 @@
+# Отдельный юнит для еженедельного обновления префиксов. quicblock.service
+# держит правило (RemainAfterExit=yes) и потому всегда active, а systemd не
+# запускает уже активный юнит — таймер, нацеленный на него, не срабатывал бы
+# никогда. Скрипт идемпотентен: пересоздаёт таблицу целиком.
+[Unit]
+Description=Refresh Google prefixes for quicblock
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/quicblock-update.sh

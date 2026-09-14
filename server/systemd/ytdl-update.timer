@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly refresh of the bot's downloaders
+
+[Timer]
+# После загрузки — потому что пересборка образа откатывает версии к тем, что в нём.
+OnBootSec=10min
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

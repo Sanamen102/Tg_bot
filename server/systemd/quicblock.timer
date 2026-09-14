@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly refresh of Google prefixes for quicblock
+
+[Timer]
+Unit=quicblock-refresh.service
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

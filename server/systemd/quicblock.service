@@ -1,0 +1,13 @@
+[Unit]
+Description=Block QUIC to Google ranges (clients fall back to TCP where DPI bypass works)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/quicblock-update.sh
+ExecStop=/usr/sbin/nft delete table ip quicblock
+
+[Install]
+WantedBy=multi-user.target

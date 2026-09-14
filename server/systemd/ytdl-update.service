@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh yt-dlp and gallery-dl inside the HomePilot container
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ytdl-update.sh
