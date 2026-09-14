@@ -1,4 +1,4 @@
-"""Клиент Jellyfin API (только чтение). Токен передаётся в заголовке."""
+"""Клиент Jellyfin API: чтение медиатеки и запуск её пересканирования."""
 
 import logging
 from dataclasses import dataclass, field
@@ -78,7 +78,10 @@ class JellyfinClient:
                 "Jellyfin не настроен: задайте JELLYFIN_URL и JELLYFIN_API_KEY в .env."
             )
         self.base_url = settings.jellyfin_url.rstrip("/")
-        self._headers = {"X-Emby-Token": settings.jellyfin_api_key}
+        # Jellyfin 12 по умолчанию отключил старую авторизацию
+        # (EnableLegacyAuthorization=false): заголовок X-Emby-Token и параметр
+        # ?api_key= отвечают 401. Принимается только схема MediaBrowser.
+        self._headers = {"Authorization": f'MediaBrowser Token="{settings.jellyfin_api_key}"'}
 
     async def _get(self, path: str, params: dict | None = None) -> httpx.Response:
         try:
@@ -133,3 +136,18 @@ class JellyfinClient:
         if resp.status_code != 200:
             return None
         return resp.content
+
+    async def refresh_library(self) -> bool:
+        """Пересканировать медиатеку, чтобы новый или заменённый файл появился сразу."""
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url, headers=self._headers, timeout=TIMEOUT
+            ) as client:
+                resp = await client.post("/Library/Refresh")
+        except httpx.HTTPError as e:
+            log.warning("Jellyfin не принял пересканирование: %s", type(e).__name__)
+            return False
+        if resp.status_code not in (200, 204):
+            log.warning("Jellyfin ответил %s на пересканирование", resp.status_code)
+            return False
+        return True

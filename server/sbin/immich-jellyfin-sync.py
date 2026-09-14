@@ -117,8 +117,11 @@ def jellyfin_refresh(env: dict) -> bool:
     if not url or not key:
         return False
     try:
+        # Jellyfin 12 отключил старую авторизацию: X-Emby-Token отвечает 401,
+        # и пересканирование молча не запускалось.
         req = urllib.request.Request(f'{url}/Library/Refresh', method='POST',
-                                     headers={'X-Emby-Token': key}, data=b'')
+                                     headers={'Authorization': f'MediaBrowser Token="{key}"'},
+                                     data=b'')
         urllib.request.urlopen(req, timeout=30)
         return True
     except Exception as e:

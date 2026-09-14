@@ -15,7 +15,8 @@
             url: http://192.168.101.7:8096/Items?ParentId=9997817c3349e7577039013dfbcebd16&Recursive=true&IncludeItemTypes=Video
             method: GET
             headers:
-              X-Emby-Token: ЗАМЕНИТЬ_КЛЮЧОМ
+              # Jellyfin 12 не принимает X-Emby-Token (EnableLegacyAuthorization=false)
+              Authorization: 'MediaBrowser Token="ЗАМЕНИТЬ_КЛЮЧОМ"'
             mappings:
               - field: TotalRecordCount
                 label: домашних роликов
