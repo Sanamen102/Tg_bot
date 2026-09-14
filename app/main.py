@@ -43,6 +43,25 @@ BOT_COMMANDS = [
 ]
 
 
+async def _set_commands(bot: Bot) -> None:
+    """Выставить меню команд, повторяя до успеха.
+
+    Одной попытки на старте мало: если прокси до Telegram ещё поднимается,
+    запрос падает, и в клиентах остаётся старое меню — новых команд не видно.
+    Так было с /heavy и /originals после деплоя 14.09.2026.
+    """
+    delay = 10
+    while True:
+        try:
+            await bot.set_my_commands(BOT_COMMANDS)
+            log.info("Меню команд обновлено: %d шт.", len(BOT_COMMANDS))
+            return
+        except Exception as e:  # ошибки socks-прокси не наследуются от TelegramNetworkError
+            log.warning("Не удалось задать меню команд: %s. Повтор через %d с.", e, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 300)
+
+
 async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -123,16 +142,9 @@ async def main() -> None:
         ytdl.router,
     )
 
-    # Меню команд — не критично: если Telegram сейчас недоступен,
-    # не падаем, а идём в polling (он сам переподключается с backoff).
-    try:
-        await bot.set_my_commands(BOT_COMMANDS)
-    except TelegramNetworkError as e:
-        log.warning(
-            "Не удалось задать меню команд (нет связи с Telegram): %s. "
-            "Продолжаю запуск — polling будет пытаться переподключиться.",
-            e,
-        )
+    # Меню команд выставляется в фоне с повторами: запуск не ждёт Telegram,
+    # но и старое меню не остаётся навсегда из-за одной неудачной попытки.
+    menu_task = asyncio.create_task(_set_commands(bot))  # noqa: F841 — держим ссылку
 
     # Лимит заряда батареи применяем сразу при старте (и далее его
     # поддерживает power_check — на случай перезагрузки хоста)

@@ -9,6 +9,8 @@
           - type: jellyfin
             url: http://192.168.101.7:8096
             key: "ЗАМЕНИТЬ_КЛЮЧОМ"
+            # Jellyfin 12: старые адреса /emby/...?api_key= отвечают 404/401
+            version: 2
             enableBlocks: true
             enableNowPlaying: false
           - type: customapi
