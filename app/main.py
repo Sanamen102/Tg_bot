@@ -26,6 +26,8 @@ BOT_COMMANDS = [
     BotCommand(command="day", description="Все фото за день"),
     BotCommand(command="jellyfin_status", description="Статус Jellyfin"),
     BotCommand(command="movie", description="Случайный фильм на вечер"),
+    BotCommand(command="heavy", description="Тяжёлые фильмы: облегчить"),
+    BotCommand(command="originals", description="Оригиналы после облегчения"),
     BotCommand(command="torrents", description="Закачки Transmission"),
     BotCommand(command="zapret", description="Обход DPI: статус и управление"),
     BotCommand(command="vpn", description="VPN: статус сервера"),
@@ -70,6 +72,7 @@ async def main() -> None:
         graph,
         immich,
         jellyfin,
+        lighten,
         system,
         torrents,
         vpn,
@@ -114,6 +117,7 @@ async def main() -> None:
         backup.router,
         books.router,
         digest.router,
+        lighten.router,
         # ytdl последним: он ловит любые сообщения со ссылками,
         # поэтому команды и magnet должны разбираться раньше
         ytdl.router,
@@ -145,6 +149,15 @@ async def main() -> None:
         await downtime_report(bot)
     except Exception:
         log.exception("Не удалось отчитаться о простое")
+
+    # Прерванная перезапуском пересборка фильма не продолжится — убираем её следы
+    if settings.lighten_enabled:
+        try:
+            from app.services import lighten as lighten_service
+
+            await asyncio.to_thread(lighten_service.startup_cleanup)
+        except Exception:
+            log.exception("Не удалось прибрать следы облегчения фильмов")
 
     scheduler = setup_scheduler(bot)
     scheduler.start()

@@ -337,6 +337,13 @@ async def torrent_check(bot: Bot) -> None:
                 chat_id,
                 f"✅ <b>Скачалось:</b> {esc(t.name)} ({human_bytes(t.size)})",
             )
+            # Тяжёлый BDRemux лучше облегчить сразу, пока его никто не смотрит
+            try:
+                from app.handlers.lighten import offer_after_download
+
+                await offer_after_download(bot, chat_id, t.id)
+            except Exception:
+                log.exception("Не удалось предложить облегчение для %s", t.name)
     _torrent_done = current
 
 

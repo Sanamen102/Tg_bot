@@ -43,6 +43,10 @@ services:
       # Медиатека: чтобы скачанные по ссылке видео (yt-dlp) попадали в Jellyfin.
       # Путь хоста при необходимости поправьте в docker-compose.override.yml
       - ${MEDIA_PATH:-/home/san/media}:/media
+      # Рабочая папка облегчения фильмов (/heavy). Держите её на ДРУГОМ
+      # физическом диске, чем медиатека: иначе чтение оригинала и запись
+      # результата пойдут по одному диску и головки будут метаться.
+      - ${LIGHTEN_WORK_PATH:-./data/lighten-work}:/work
     # Для SMART-мониторинга (/smart, SMART_DEVICES в .env) раскомментируйте
     # и подставьте свой диск (узнать: lsblk -d -o NAME,TYPE,SIZE):
     # devices:

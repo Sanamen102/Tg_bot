@@ -62,6 +62,14 @@ class Torrent:
         return self.is_finished or self.percent >= 1.0
 
 
+@dataclass
+class TorrentFiles:
+    id: int
+    name: str
+    download_dir: str  # путь, как его видит контейнер Transmission
+    files: list[tuple[str, int]]  # (путь относительно download_dir, размер)
+
+
 class TransmissionClient:
     # Токен сессии живёт на классе — переживает создание новых клиентов
     _session_id: str = ""
@@ -145,3 +153,21 @@ class TransmissionClient:
         if "torrent-duplicate" in args:
             return args["torrent-duplicate"].get("name", "торрент"), True
         return args.get("torrent-added", {}).get("name", "торрент"), False
+
+    async def torrent_files(self, ids: list[int] | None = None) -> list[TorrentFiles]:
+        arguments: dict = {"fields": ["id", "name", "downloadDir", "files"]}
+        if ids:
+            arguments["ids"] = ids
+        args = await self._rpc("torrent-get", arguments)
+        return [
+            TorrentFiles(
+                id=t["id"],
+                name=t.get("name", "?"),
+                download_dir=t.get("downloadDir", ""),
+                files=[(f.get("name", ""), f.get("length", 0)) for f in t.get("files", [])],
+            )
+            for t in args.get("torrents", [])
+        ]
+
+    async def stop(self, ids: list[int]) -> None:
+        await self._rpc("torrent-stop", {"ids": ids})

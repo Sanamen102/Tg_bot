@@ -132,6 +132,23 @@ class Settings(BaseSettings):
     # Например socks5://mieru:1080 (тот же, что для Telegram). Пусто = напрямую.
     ytdl_proxy: str = ""
 
+    # --- Облегчение тяжёлых фильмов (/heavy) ---
+    # Папки медиатеки ВНУТРИ контейнера через запятую: /media/movie,/media/show.
+    # Пусто = функция выключена.
+    lighten_dirs: str = ""
+    # Рабочая папка пересборки внутри контейнера. На хосте её стоит держать на
+    # ДРУГОМ физическом диске, чем медиатека (LIGHTEN_WORK_PATH в docker-compose.yml).
+    lighten_work_dir: str = "/work"
+    # С какого размера файл вообще проверять и с какой экономии предлагать, ГБ
+    lighten_min_file_gb: float = 8.0
+    lighten_min_savings_gb: float = 5.0
+    # Метка «идёт пересборка»: её видит ytdl-update.sh на хосте и не
+    # перезапускает бота посреди работы. Путь относительно /app (data/ — том).
+    lighten_lock_path: str = "data/lighten.lock"
+    # Как пути Transmission соотносятся с путями бота, «от:к». Transmission видит
+    # медиатеку как /downloads, бот — как /media.
+    torrent_path_map: str = "/downloads:/media"
+
     # --- Бэкап конфигов в Telegram (/backup) ---
     # Каталоги ХОСТА через запятую, откуда собирать конфиги
     # (бот читает их через ро-монтирование /host/root). Пусто = выкл.
@@ -196,6 +213,24 @@ class Settings(BaseSettings):
             if label.strip() and url.strip().startswith(("http://", "https://")):
                 result.append((label.strip(), url.strip()))
         return result
+
+    @cached_property
+    def lighten_dir_list(self) -> list[str]:
+        return [x.strip().rstrip("/") for x in self.lighten_dirs.split(",") if x.strip()]
+
+    @property
+    def lighten_enabled(self) -> bool:
+        return bool(self.lighten_dir_list)
+
+    @cached_property
+    def torrent_path_pair(self) -> tuple[str, str] | None:
+        """(путь у Transmission, путь у бота) из TORRENT_PATH_MAP или None."""
+        if ":" not in self.torrent_path_map:
+            return None
+        src, dst = (part.strip().rstrip("/") for part in self.torrent_path_map.split(":", 1))
+        if src.startswith("/") and dst.startswith("/"):
+            return src, dst
+        return None
 
     @property
     def zapret_enabled(self) -> bool:
