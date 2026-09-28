@@ -251,7 +251,8 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
                 problems["vpn:порт"] = (
                     f"🔐 VPN-сервер не отвечает из дома уже ~{minutes} мин. "
                     "Если сам сервер жив — скорее всего его адрес заблокировали. "
-                    "Статус: /vpn, переезд: /vpn_server новый_адрес"
+                    "Статус: /vpn. Переезд — на сервере: "
+                    "deploy/vps-migrate.sh root@новый_адрес"
                 )
             elif settings.vpn_sub_port and not await vpn_service.probe_port(
                 settings.vpn_sub_port
