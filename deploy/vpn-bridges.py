@@ -142,17 +142,32 @@ def probe(host, sub_port=8080):
     token = provider_url(text).group("url").rstrip("/").rsplit("/", 1)[-1]
     with urllib.request.urlopen("http://%s:%d/%s" % (host, sub_port, token), timeout=15) as r:
         sub = r.read().decode()
-    if "server: %s" % host not in sub:
+    # Только узлы проверяемого сервера. В подписке может быть и запасной
+    # (прежний сервер на время пробного периода) — через него проба прошла
+    # бы, даже будь новый сервер мёртв.
+    proxies = sub.split("proxy-groups:")[0]
+    names, cur = [], None
+    for line in proxies.splitlines():
+        s = line.strip()
+        if s.startswith("- name:"):
+            cur = s.split(":", 1)[1].strip().strip('"')
+        elif s.startswith("server:") and s.split(":", 1)[1].strip() == host and cur:
+            names.append(cur)
+    if not names:
         bad("подписка на новом сервере указывает не на %s" % host)
         return 1
-    ok("новый сервер отдаёт подписку с адресом %s" % host)
+    ok("новый сервер отдаёт подписку с адресом %s (узлов: %d)" % (host, len(names)))
 
     work = tempfile.mkdtemp(prefix="vps-probe-")  # 700: внутри будет пароль
     try:
         with open(os.path.join(work, "config.yaml"), "w") as f:
             f.write("mixed-port: %d\nallow-lan: true\nbind-address: '*'\n"
                     "mode: rule\nlog-level: warning\nipv6: false\n" % PROBE_PORT)
-            f.write(sub)
+            f.write(proxies.rstrip() + "\n\nproxy-groups:\n  - name: PROBE\n"
+                    "    type: fallback\n    url: http://cp.cloudflare.com/generate_204\n"
+                    "    interval: 60\n    proxies:\n")
+            f.write("".join('      - "%s"\n' % n for n in names))
+            f.write("\nrules:\n  - MATCH,PROBE\n")
         subprocess.run(["docker", "rm", "-f", PROBE_NAME], capture_output=True)
         subprocess.run(
             ["docker", "run", "-d", "--rm", "--name", PROBE_NAME,

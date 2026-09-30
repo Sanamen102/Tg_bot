@@ -8,13 +8,17 @@
 Адрес сервера и токены подписок - /root/mieru-meta.json. Смена адреса
 (команда server) перегенерирует все файлы подписок, и клиенты подтянут
 новый сервер сами - обходить людей руками не нужно.
+
+Прежний адрес после смены ещё BACKUP_DAYS дней остаётся в подписках
+запасным - см. hosts().
 """
-import hashlib, json, sys, os, subprocess, secrets, string
+import hashlib, json, sys, os, subprocess, secrets, string, time
 
 CONF  = "/root/mieru-server.json"
 META  = "/root/mieru-meta.json"
 SUBD  = "/opt/mieru-sub"
 ALPHA = string.ascii_letters + string.digits
+BACKUP_DAYS = 14
 
 
 def load(p):
@@ -66,6 +70,24 @@ def suburl(meta, token):
 PORTS_PER_USER = 6
 
 
+def hosts(meta):
+    """Адреса для подписки: текущий и, пока не истёк срок, прежний.
+
+    Переезд идёт с пробным периодом: старый сервер ещё работает с теми же
+    логинами, и пусть клиенты сами уходят на него, если новый окажется
+    плохим. Группа fallback держится за первый живой узел, поэтому пока
+    новый сервер работает, на старый никто не ходит.
+
+    Когда срок вышел, запасной перестаёт попадать в новые файлы подписок.
+    Уже записанные его узлы безвредны: мёртвый узел fallback пропускает.
+    """
+    out = [meta["host"]]
+    b = meta.get("backup") or {}
+    if b.get("host") and b["host"] != meta["host"] and time.time() < b.get("until", 0):
+        out.append(b["host"])
+    return out
+
+
 def user_ports(cfg, name, count=PORTS_PER_USER):
     """Свой набор портов на каждого, выведенный из имени.
 
@@ -109,12 +131,20 @@ def write_sub(cfg, meta, name, pw, token):
     nl = chr(10)
     ports = user_ports(cfg, name)
     profile = meta["profile"]
+    names = []
     lines = ["proxies:"]
-    for idx, port in enumerate(ports, 1):
+    # Имена узлов основного сервера прежние ("профиль-N"), чтобы клиент не
+    # терял выбор при перегенерации; у запасного - "профиль-rN".
+    nodes = [(h, host, idx, port)
+             for h, host in enumerate(hosts(meta))
+             for idx, port in enumerate(ports, 1)]
+    for h, host, idx, port in nodes:
+        node = "%s-%s%d" % (profile, "r" if h else "", idx)
+        names.append(node)
         lines += [
-            '  - name: "%s-%d"' % (profile, idx),
+            '  - name: "%s"' % node,
             "    type: mieru",
-            "    server: %s" % meta["host"],
+            "    server: %s" % host,
             "    port: %d" % port,
             "    transport: TCP",
             '    username: "%s"' % name,
@@ -135,7 +165,7 @@ def write_sub(cfg, meta, name, pw, token):
         "    interval: 300",
         "    proxies:",
     ]
-    lines += ['      - "%s-%d"' % (profile, i) for i in range(1, len(ports) + 1)]
+    lines += ['      - "%s"' % n for n in names]
     lines += ["", "rules:", "  - MATCH,VPN", ""]
 
     path = os.path.join(SUBD, token)
@@ -217,10 +247,17 @@ def main():
         if not arg:
             print("текущий адрес: %s" % meta["host"]); return 0
         old = meta["host"]
-        meta["host"] = arg
+        # Повтор с тем же адресом запасной не трогает: повторный прогон
+        # скрипта переезда не должен отменять пробный период.
+        if arg != old:
+            meta["backup"] = {"host": old, "until": int(time.time()) + BACKUP_DAYS * 86400}
+            meta["host"] = arg
         save(META, meta)
         regen_all(cfg, meta)
         print("адрес сервера: %s -> %s" % (old, arg))
+        if len(hosts(meta)) > 1:
+            print("запасной до %s: %s" % (
+                time.strftime("%d.%m.%Y", time.localtime(meta["backup"]["until"])), hosts(meta)[1]))
         print("перегенерировано подписок: %d" % len(meta["tokens"]))
         print("клиенты подтянут новый адрес сами при следующем обновлении подписки")
 
