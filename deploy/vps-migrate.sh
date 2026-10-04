@@ -119,7 +119,13 @@ ok "$OSNAME, $ARCH, root есть"
 say "2/11  Базовая настройка"
 rsh "export DEBIAN_FRONTEND=noninteractive
      apt-get update -qq
-     apt-get install -y -qq curl nginx python3 >/dev/null" || die "не поставить curl/nginx/python3"
+     apt-get install -y -qq curl nginx python3 unattended-upgrades >/dev/null" || die "не поставить curl/nginx/python3"
+# Автоустановка security-обновлений. В образе Аезы её не было вовсе: пакет
+# не стоял, таймеры apt выключены — к 05.10.2026 накопилось 186 security-
+# обновлений. Перезагрузку под новое ядро не делаем: это обрыв у всех людей.
+rsh "printf 'APT::Periodic::Update-Package-Lists \"1\";\nAPT::Periodic::Unattended-Upgrade \"1\";\n' \
+       > /etc/apt/apt.conf.d/20auto-upgrades
+     systemctl enable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true"
 # BBR: на маршруте до России кратно поднимает одиночный поток. Без него
 # окно перегрузки схлопывается и получается около мегабита на соединение.
 rsh "printf 'net.core.default_qdisc = fq\nnet.ipv4.tcp_congestion_control = bbr\n' \
@@ -127,7 +133,20 @@ rsh "printf 'net.core.default_qdisc = fq\nnet.ipv4.tcp_congestion_control = bbr\
      sysctl -p /etc/sysctl.d/99-bbr.conf >/dev/null"
 CC=$(rsh "sysctl -n net.ipv4.tcp_congestion_control")
 [ "$CC" = bbr ] || die "BBR не включился (сейчас $CC)"
-ok "пакеты, BBR включён"
+# DNS через локальный кэш systemd-resolved. Образ Аезы подменял resolv.conf
+# статическим файлом с 8.8.8.8: при 3-6% потерь UDP каждый десятый резолв
+# ждал 5-10 с (таймаут glibc/Go), и у людей «думал» каждый новый сайт.
+# Через resolved — максимум 69 мс на 100 запросах (замер 05.10.2026).
+if rsh "systemctl is-active --quiet systemd-resolved"; then
+    rsh "[ \"\$(readlink /etc/resolv.conf)\" = ../run/systemd/resolve/stub-resolv.conf ] \
+         || { cp -a /etc/resolv.conf /etc/resolv.conf.orig 2>/dev/null; \
+              ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf; }
+         getent ahostsv4 github.com >/dev/null" || die "после переключения на systemd-resolved не резолвятся имена"
+    DNSNOTE="DNS через кэш systemd-resolved"
+else
+    DNSNOTE="systemd-resolved не запущен — DNS оставлен как есть"
+fi
+ok "пакеты, автообновления безопасности, BBR, $DNSNOTE"
 
 # --- 3. mieru ----------------------------------------------------------
 say "3/11  Ставлю mieru $MIERU_VERSION"
