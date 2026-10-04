@@ -120,6 +120,16 @@ _awg_fail_cycles = 0
 # То же для VPN-сервера: сколько циклов подряд его порт молчит из дома
 _vpn_fail_cycles = 0
 
+# Когда порт VPN замолчал. Пока VPS лежит, бот сам без Telegram — он ходит
+# туда через этот же VPS, — и тревога не уходит, а после восстановления
+# проблема просто исчезала из списка. Так 01–02.10.2026 незамеченным прошёл
+# 11-часовой простой Аезы. Теперь отчитываемся задним числом.
+_vpn_outage_start: datetime | None = None
+
+# Сообщения, которые надо доставить, даже если первая попытка не прошла:
+# сразу после восстановления VPN мост бота может ещё не переподключиться.
+_pending_reports: list[str] = []
+
 
 async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     """Возвращает (постоянные проблемы, разовые сообщения).
@@ -127,7 +137,7 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     Постоянные живут в _active_alerts (алерт + «снова в порядке»),
     разовые (например, рост SMART-счётчика) отправляются один раз.
     """
-    global _awg_fail_cycles, _vpn_fail_cycles
+    global _awg_fail_cycles, _vpn_fail_cycles, _vpn_outage_start
     problems: dict[str, str] = {}
     oneoffs: list[str] = []
 
@@ -241,9 +251,14 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
             # при этом жив — значит адрес попал под блокировку у провайдера.
             # Это надо узнавать самому, а не из жалоб «у меня не работает».
             if await vpn_service.probe_port(settings.vpn_check_port):
+                if _vpn_outage_start and _vpn_fail_cycles >= settings.vpn_confirm_fails:
+                    _pending_reports.append(_vpn_outage_text(_vpn_outage_start, datetime.now()))
                 _vpn_fail_cycles = 0
+                _vpn_outage_start = None
             else:
                 _vpn_fail_cycles += 1
+                if _vpn_outage_start is None:
+                    _vpn_outage_start = datetime.now()
                 if _vpn_fail_cycles == 1:
                     log.warning("VPN-порт не ответил (цикл 1) — жду подтверждения")
             if _vpn_fail_cycles >= settings.vpn_confirm_fails:
@@ -280,6 +295,16 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     return problems, oneoffs
 
 
+def _vpn_outage_text(start: datetime, end: datetime) -> str:
+    fmt = "%d.%m %H:%M"
+    return (
+        "🔐 <b>VPN снова работает.</b> Сервер не отвечал из дома примерно "
+        f"с {start:{fmt}} до {end:{fmt}} "
+        f"(~{human_duration((end - start).total_seconds())}).\n"
+        "Сообщить раньше было нельзя: бот ходит в Telegram через этот же сервер."
+    )
+
+
 async def monitor_check(bot: Bot) -> None:
     chat_id = settings.notify_chat_id
     if chat_id is None:
@@ -287,11 +312,20 @@ async def monitor_check(bot: Bot) -> None:
 
     problems, oneoffs = await _collect_problems()
 
-    if oneoffs:
-        await bot.send_message(chat_id, "\n\n".join(oneoffs))
-
     new_keys = set(problems) - set(_active_alerts)
     resolved_keys = set(_active_alerts) - set(problems)
+
+    if _pending_reports:
+        # Очередь чистим только после успешной отправки: если Telegram ещё
+        # недоступен, исключение оставит отчёт до следующей проверки.
+        await bot.send_message(chat_id, "\n\n".join(_pending_reports))
+        _pending_reports.clear()
+        # Отчёт о простое заменяет обычное «снова в порядке» для VPN
+        resolved_keys.discard("vpn:порт")
+        _active_alerts.pop("vpn:порт", None)
+
+    if oneoffs:
+        await bot.send_message(chat_id, "\n\n".join(oneoffs))
 
     if new_keys:
         lines = ["🚨 <b>HomePilot: обнаружены проблемы</b>\n"]

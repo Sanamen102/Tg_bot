@@ -1,6 +1,14 @@
 services:
   homepilot:
+    # Диски для SMART-мониторинга (/smart и алерты). На хосте берём их по
+    # постоянным id: имена sdX могут поменяться местами, если добавить или
+    # переставить диск, и бот начал бы следить не за тем. Внутри контейнера
+    # имена фиксированные — их и перечисляет SMART_DEVICES в .env.
     devices:
-      - /dev/sda:/dev/sda
+      - /dev/disk/by-id/nvme-SBSSD128-STE14-M2P3_AA000000000000000036:/dev/nvme0n1   # система
+      - /dev/disk/by-id/ata-ST4000VX016-3CV104_WW68R0H5:/dev/sda                     # SkyHawk 4 ТБ, фото
+      - /dev/disk/by-id/ata-WDC_WD5000LPVX-80V0TT0_WD-WX71E24V0735:/dev/sdb          # 500 ГБ, медиа
+      - /dev/disk/by-id/ata-WDC_WD10JPVX-60JC3T0_WD-WXB1A8676HVV:/dev/sdc            # 1 ТБ, медиа, самый старый
     cap_add:
-      - SYS_RAWIO
+      - SYS_RAWIO   # SMART у SATA
+      - SYS_ADMIN   # SMART у NVMe (admin-команды)

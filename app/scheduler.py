@@ -3,6 +3,7 @@
 import logging
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -15,6 +16,36 @@ from app.services import system as system_service
 from app.services.errors import ServiceError
 
 log = logging.getLogger(__name__)
+
+# Связь с Telegram идёт через туннель и иногда рвётся на секунды. Плановое
+# сообщение без повтора просто теряется: 04.10.2026 обрыв пришёлся ровно
+# на 18:00, и пропали сразу отчёт недели и воспоминание дня.
+RETRY_DELAYS = (60, 300, 900)
+
+# Ошибки socks-прокси aiogram не всегда заворачивает в TelegramNetworkError
+# (см. main.py) — повторяем и на них.
+try:
+    from python_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
+
+    _NETWORK_ERRORS: tuple[type[BaseException], ...] = (
+        TelegramNetworkError, ProxyError, ProxyConnectionError, ProxyTimeoutError,
+    )
+except ImportError:  # прокси не используется
+    _NETWORK_ERRORS = (TelegramNetworkError,)
+
+
+async def _with_retries(name: str, job) -> None:
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        try:
+            await job()
+            return
+        except _NETWORK_ERRORS as e:
+            if attempt == len(RETRY_DELAYS):
+                log.error("%s: Telegram недоступен, попытки кончились: %s", name, e)
+                return
+            delay = RETRY_DELAYS[attempt]
+            log.warning("%s: нет связи с Telegram (%s), повтор через %d с", name, e, delay)
+            await asyncio.sleep(delay)
 
 
 def _parse_hhmm(value: str) -> tuple[int, int] | None:
@@ -29,11 +60,22 @@ async def _daily_memory(bot: Bot) -> None:
     chat_id = settings.notify_chat_id
     if chat_id is None:
         return
+    header_sent = False
+
+    async def job() -> None:
+        nonlocal header_sent
+        try:
+            # Заголовок не повторяем: при обрыве посреди фотографий
+            # повтор начнётся с них, а не с ещё одного заголовка
+            if not header_sent:
+                await bot.send_message(chat_id, "🕰 <b>Воспоминание дня</b>")
+                header_sent = True
+            await actions.send_memories_today(bot, chat_id, limit=3)
+        except ServiceError as e:
+            await bot.send_message(chat_id, f"⚠️ Воспоминание дня не получилось: {e.user_message}")
+
     try:
-        await bot.send_message(chat_id, "🕰 <b>Воспоминание дня</b>")
-        await actions.send_memories_today(bot, chat_id, limit=3)
-    except ServiceError as e:
-        await bot.send_message(chat_id, f"⚠️ Воспоминание дня не получилось: {e.user_message}")
+        await _with_retries("Воспоминание дня", job)
     except Exception:
         log.exception("Ошибка ежедневного воспоминания")
 
@@ -42,9 +84,13 @@ async def _weekly_report(bot: Bot) -> None:
     chat_id = settings.notify_chat_id
     if chat_id is None:
         return
-    try:
+
+    async def job() -> None:
         text = await actions.build_week_text()
         await bot.send_message(chat_id, text)
+
+    try:
+        await _with_retries("Отчёт недели", job)
     except Exception:
         log.exception("Ошибка еженедельного отчёта")
 
@@ -53,12 +99,16 @@ async def _weekly_backup(bot: Bot) -> None:
     chat_id = settings.notify_chat_id
     if chat_id is None:
         return
-    try:
-        from app.handlers.backup import send_backup
+    from app.handlers.backup import send_backup
 
-        await send_backup(bot, chat_id, prefix="🗓 Еженедельный ")
-    except ServiceError as e:
-        await bot.send_message(chat_id, f"⚠️ Еженедельный бэкап не получился: {e.user_message}")
+    async def job() -> None:
+        try:
+            await send_backup(bot, chat_id, prefix="🗓 Еженедельный ")
+        except ServiceError as e:
+            await bot.send_message(chat_id, f"⚠️ Еженедельный бэкап не получился: {e.user_message}")
+
+    try:
+        await _with_retries("Бэкап недели", job)
     except Exception:
         log.exception("Ошибка еженедельного бэкапа")
 
