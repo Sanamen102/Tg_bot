@@ -40,6 +40,9 @@ class SmartInfo:
     state_problems: list[str] = field(default_factory=list)
     # Накопительные счётчики (имя -> raw) — алертить только при росте
     counters: dict[str, int] = field(default_factory=dict)
+    # Диск не прочитан вовсе (пропал, не отвечает, нет доступа). Это тоже
+    # повод для алерта: отвалившийся диск хуже любого счётчика.
+    error: str | None = None
 
     @property
     def problems(self) -> list[str]:
@@ -84,6 +87,11 @@ def _parse_smart(device: str, data: dict) -> SmartInfo:
     return info
 
 
+# Умирающий диск может отвечать на ATA-команды минутами. Без предела один
+# такой диск держал бы мониторинг целиком.
+SMART_TIMEOUT = 60
+
+
 async def read_smart(device: str) -> SmartInfo:
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -91,11 +99,18 @@ async def read_smart(device: str) -> SmartInfo:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        out, _ = await proc.communicate()
     except FileNotFoundError:
         raise ServiceError(
             "smartctl не найден в контейнере — пересоберите образ: "
             "sudo docker compose build homepilot"
+        ) from None
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), SMART_TIMEOUT)
+    except TimeoutError:
+        proc.kill()
+        raise ServiceError(
+            f"smartctl не дождался ответа от {device} за {SMART_TIMEOUT} с — "
+            "диск не отвечает."
         ) from None
 
     try:
@@ -125,4 +140,12 @@ async def read_all() -> list[SmartInfo]:
             "SMART не настроен: задайте SMART_DEVICES в .env "
             "и пробросьте диски в docker-compose.yml (см. README)."
         )
-    return [await read_smart(d) for d in devices]
+    # Каждый диск отдельно: раньше первый же нечитаемый диск обрывал опрос,
+    # и SMART остальных просто не проверялся.
+    infos = []
+    for device in devices:
+        try:
+            infos.append(await read_smart(device))
+        except ServiceError as e:
+            infos.append(SmartInfo(device=device, error=e.user_message))
+    return infos

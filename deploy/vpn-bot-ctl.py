@@ -11,8 +11,12 @@ import json, os, re, shlex, subprocess, sys
 
 CONF = "/root/mieru-server.json"
 META = "/root/mieru-meta.json"
-NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
-HOST_RE = re.compile(r"^[a-zA-Z0-9.-]{3,64}$")
+# Проверяются через fullmatch: у re.match с «$» хвостовой перевод строки
+# проходил бы проверку. Адрес — IPv4 или имя из нормальных меток: раньше
+# годились и «...», и «-----», а действие server переписывает подписки всем.
+NAME_RE = re.compile(r"[a-zA-Z0-9_-]{1,32}")
+_LABEL = r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+HOST_RE = re.compile(r"(?=.{3,64}$)%s(?:\.%s)+" % (_LABEL, _LABEL))
 ACTIONS = {"status", "users", "add", "del", "link", "sub", "server", "state"}
 
 
@@ -41,7 +45,7 @@ def mita_users():
     res = {}
     for line in out_.splitlines()[1:]:
         parts = line.split()
-        if len(parts) >= 2 and NAME_RE.match(parts[0]):
+        if len(parts) >= 2 and NAME_RE.fullmatch(parts[0]):
             res[parts[0]] = parts[1] if parts[1] != "-" else None
     return res
 
@@ -78,7 +82,7 @@ def links_map(kind):
     res = {}
     for line in out_.splitlines():
         parts = line.split(None, 1)
-        if len(parts) == 2 and NAME_RE.match(parts[0]):
+        if len(parts) == 2 and NAME_RE.fullmatch(parts[0]):
             res[parts[0]] = parts[1].strip()
     return res
 
@@ -123,14 +127,14 @@ def main():
             for u in cfg["users"]])
 
     if action in ("link", "sub"):
-        if not arg or not NAME_RE.match(arg):
+        if not arg or not NAME_RE.fullmatch(arg):
             fail("недопустимое имя")
         if not any(u["name"] == arg for u in cfg["users"]):
             fail("нет пользователя «%s»" % arg)
         out(ok=True, name=arg, value=links_map(action).get(arg))
 
     if action == "add":
-        if not arg or not NAME_RE.match(arg):
+        if not arg or not NAME_RE.fullmatch(arg):
             fail("имя должно быть из латиницы, цифр, _ и -, до 32 символов")
         if any(u["name"] == arg for u in cfg["users"]):
             fail("пользователь «%s» уже есть" % arg)
@@ -141,7 +145,7 @@ def main():
             sub=links_map("sub").get(arg), total=len(cfg["users"]) + 1)
 
     if action == "del":
-        if not arg or not NAME_RE.match(arg):
+        if not arg or not NAME_RE.fullmatch(arg):
             fail("недопустимое имя")
         if not any(u["name"] == arg for u in cfg["users"]):
             fail("нет пользователя «%s»" % arg)
@@ -161,7 +165,7 @@ def main():
         out(ok=True, server=cfg, meta=meta)
 
     if action == "server":
-        if not arg or not HOST_RE.match(arg):
+        if not arg or not HOST_RE.fullmatch(arg):
             fail("недопустимый адрес")
         old = meta["host"]
         rc, o = sh(["mieru-user", "server", arg], timeout=60)

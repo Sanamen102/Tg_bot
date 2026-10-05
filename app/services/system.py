@@ -29,6 +29,10 @@ class DiskInfo:
     used: int
     free: int
     percent: float
+    # Отвалившийся диск оставляет на месте точки монтирования пустую папку
+    # на системном диске, и без этой проверки бот спокойно показывал бы
+    # место системного диска под чужим именем.
+    mounted: bool = True
 
     @property
     def is_alert(self) -> bool:
@@ -189,6 +193,7 @@ def get_disks() -> list[DiskInfo]:
                 used=usage.used,
                 free=usage.free,
                 percent=usage.percent,
+                mounted=os.path.ismount(path),
             )
         )
     return disks

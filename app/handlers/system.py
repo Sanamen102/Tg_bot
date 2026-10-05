@@ -80,6 +80,11 @@ async def cmd_smart(message: Message) -> None:
         return
     lines = ["💽 <b>SMART-здоровье дисков</b>\n"]
     for info in infos:
+        if info.error:
+            lines.append(f"<b>{esc(info.device)}</b> — ❌ не читается")
+            lines.append(f"  ⚠️ {esc(info.error)}")
+            lines.append("")
+            continue
         if info.passed is True:
             status = "✅ PASSED"
         elif info.passed is False:

@@ -108,11 +108,36 @@ def _selection_view(token: str, sel: Selection) -> tuple[str, InlineKeyboardMark
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _stored_keyboard(token: str, final: Path | None) -> InlineKeyboardMarkup:
-    row = [InlineKeyboardButton(text="🗑 Удалить оригинал", callback_data=f"lt:d:{token}")]
-    if final is not None:
-        row.append(InlineKeyboardButton(text="↩️ Вернуть оригинал", callback_data=f"lt:u:{token}"))
-    return InlineKeyboardMarkup(inline_keyboard=[row])
+def _stored_keyboard(token: str) -> InlineKeyboardMarkup:
+    # «Вернуть» есть всегда: раньше его не было в /originals, и после
+    # перезапуска бота у отложенного оригинала оставалась одна кнопка — удалить.
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🗑 Удалить оригинал", callback_data=f"lt:d:{token}"),
+        InlineKeyboardButton(text="↩️ Вернуть оригинал", callback_data=f"lt:u:{token}"),
+    ]])
+
+
+def _replacement(item: tuple[Path | None, Path]) -> Path | None:
+    """Облегчённая копия, которая сейчас стоит вместо оригинала."""
+    final, stored = item
+    if final is not None and final.is_file():
+        return final
+    return lighten.guess_final(stored)
+
+
+async def _send_retrying(bot: Bot, chat_id: int, text: str, **kwargs) -> None:
+    # Итог облегчения несёт кнопки «удалить/вернуть». Потерять его из-за
+    # секундного обрыва туннеля значит остаться без них.
+    for delay in (10, 60, 300, None):
+        try:
+            await bot.send_message(chat_id, text, **kwargs)
+            return
+        except Exception as e:
+            if delay is None:
+                log.error("Итог облегчения так и не ушёл: %s", e)
+                return
+            log.warning("Итог облегчения не ушёл (%s), повтор через %d с", e, delay)
+            await asyncio.sleep(delay)
 
 
 async def _refresh_jellyfin() -> bool:
@@ -197,11 +222,16 @@ async def cmd_originals(message: Message) -> None:
         "Jellyfin их не видит. Удаляйте, когда убедитесь, что облегчённые версии в порядке."
     )
     for path, size in items[:ORIGINALS_SHOWN]:
-        token = _remember(_stored, (None, path))
+        final = await asyncio.to_thread(lighten.guess_final, path)
+        token = _remember(_stored, (final, path))
+        if final is not None:
+            replaced = f"Вместо него в медиатеке: <code>{esc(final.name)}</code>"
+        else:
+            replaced = "⚠️ Облегчённой копии рядом нет — этот файл сейчас единственный."
         await message.answer(
             f"• <b>{esc(path.name)}</b> — {human_bytes(size)}\n"
-            f"<code>{esc(str(path.parent.parent))}</code>",
-            reply_markup=_stored_keyboard(token, None),
+            f"<code>{esc(str(path.parent.parent))}</code>\n{replaced}",
+            reply_markup=_stored_keyboard(token),
         )
 
 
@@ -354,8 +384,18 @@ async def _run(bot: Bot, chat_id: int, message_id: int, sel: Selection) -> None:
         )
         return
 
-    torrent_stopped = await _stop_torrent(info.path)
-    refreshed = await _refresh_jellyfin()
+    # Фильм уже подменён: что бы ни случилось дальше, итог с кнопками должен
+    # дойти, иначе вернуть оригинал можно будет только через /originals
+    try:
+        torrent_stopped = await _stop_torrent(info.path)
+    except Exception:
+        log.exception("Остановка раздачи после облегчения")
+        torrent_stopped = False
+    try:
+        refreshed = await _refresh_jellyfin()
+    except Exception:
+        log.exception("Пересканирование Jellyfin после облегчения")
+        refreshed = False
     token = _remember(_stored, (final, stored))
     lines = [
         f"✅ <b>Облегчил {name}</b>",
@@ -374,7 +414,7 @@ async def _run(bot: Bot, chat_id: int, message_id: int, sel: Selection) -> None:
         else "Jellyfin подхватит файл при ближайшем сканировании."
     )
     await edit(f"✅ Готово: <b>{name}</b>")
-    await bot.send_message(chat_id, "\n".join(lines), reply_markup=_stored_keyboard(token, final))
+    await _send_retrying(bot, chat_id, "\n".join(lines), reply_markup=_stored_keyboard(token))
 
 
 async def _ask_delete(callback: CallbackQuery, msg: Message, token: str, _rest: list[str]) -> None:
@@ -386,10 +426,22 @@ async def _ask_delete(callback: CallbackQuery, msg: Message, token: str, _rest: 
         size = item[1].stat().st_size
     except OSError:
         size = 0
-    await callback.answer()
+    replacement = await asyncio.to_thread(_replacement, item)
+    # Без замены удаление оставит библиотеку без фильма — говорим об этом
+    # прямо на кнопке, а не в справке
+    text = (
+        f"🗑 Да, удалить {human_bytes(size)}"
+        if replacement is not None
+        else "🗑 Удалить — замены НЕТ"
+    )
+    await callback.answer(
+        None if replacement is not None
+        else "Облегчённой копии в медиатеке нет: после удаления фильма не останется.",
+        show_alert=replacement is None,
+    )
     await msg.edit_reply_markup(
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=f"🗑 Да, удалить {human_bytes(size)}", callback_data=f"lt:D:{token}"),
+            InlineKeyboardButton(text=text, callback_data=f"lt:D:{token}"),
             InlineKeyboardButton(text="Не надо", callback_data=f"lt:k:{token}"),
         ]])
     )
@@ -414,12 +466,12 @@ async def _keep(callback: CallbackQuery, msg: Message, token: str, _rest: list[s
         await _stale(callback, msg)
         return
     await callback.answer()
-    await msg.edit_reply_markup(reply_markup=_stored_keyboard(token, item[0]))
+    await msg.edit_reply_markup(reply_markup=_stored_keyboard(token))
 
 
 async def _ask_restore(callback: CallbackQuery, msg: Message, token: str, _rest: list[str]) -> None:
     item = _stored.get(token)
-    if item is None or item[0] is None:
+    if item is None:
         await _stale(callback, msg)
         return
     await callback.answer()
@@ -432,17 +484,21 @@ async def _ask_restore(callback: CallbackQuery, msg: Message, token: str, _rest:
 
 
 async def _restore(callback: CallbackQuery, msg: Message, token: str, _rest: list[str]) -> None:
-    item = _stored.pop(token, None)
-    if item is None or item[0] is None:
+    item = _stored.get(token)
+    if item is None:
         await _stale(callback, msg)
         return
-    final, stored = item
-    await asyncio.to_thread(lighten.restore, final, stored)
+    final = await asyncio.to_thread(_replacement, item)
+    # Токен гасим только после успеха: при отказе (на месте оригинала чужой
+    # файл) кнопку можно нажать снова, когда причина устранена
+    await asyncio.to_thread(lighten.restore, final, item[1])
+    _stored.pop(token, None)
     refreshed = await _refresh_jellyfin()
     await callback.answer("Вернул")
     note = " Jellyfin уже пересканирует библиотеку." if refreshed else ""
+    copy_note = ", облегчённая копия удалена" if final is not None else ""
     await msg.edit_text(
-        f"{msg.html_text}\n\n↩️ Оригинал вернул на место, облегчённая копия удалена.{note}",
+        f"{msg.html_text}\n\n↩️ Оригинал вернул на место{copy_note}.{note}",
         reply_markup=None,
     )
 

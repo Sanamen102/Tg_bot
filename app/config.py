@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     vpn_ssh_port: int = 22
     vpn_ssh_user: str = "root"
     vpn_ssh_key_path: str = "/app/ssh/id_ed25519_vpn"
+    # Запомненный ключ VPS. VPS в чужой сети, и без проверки ключа кто угодно
+    # на пути мог бы выдать себя за сервер и подсунуть боту свои ссылки для
+    # людей. Файл пишет deploy/vps-migrate.sh; если его нет — проверки нет.
+    vpn_ssh_known_hosts: str = "/app/ssh/vpn_known_hosts"
     # Проверка «а видно ли VPN из дома»: бот TCP-стучится на порт mieru
     # и на порт подписок. Именно так блокировка IP и обнаруживается —
     # раньше, чем начнут жаловаться люди. 0 = не проверять.

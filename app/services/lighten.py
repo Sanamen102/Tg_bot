@@ -104,6 +104,10 @@ class MediaInfo:
     size: int
     duration: float
     tracks: list[Track]
+    # Отпечаток файла на момент ffprobe. Индексы дорожек годятся только для
+    # того же самого файла: если его перезалил торрент или облегчили из
+    # другого сообщения, -map 0:N молча возьмёт чужие дорожки.
+    mtime_ns: int = 0
 
     @property
     def audio(self) -> list[Track]:
@@ -190,7 +194,26 @@ async def probe(path: Path) -> MediaInfo:
         data = json.loads(out)
     except json.JSONDecodeError:
         raise ServiceError(f"ffprobe вернул непонятный ответ на {path.name}.") from None
-    return parse_probe(path, data)
+    info = parse_probe(path, data)
+    try:
+        st = path.stat()
+        info.size, info.mtime_ns = st.st_size, st.st_mtime_ns
+    except OSError:
+        pass
+    return info
+
+
+def _ensure_unchanged(info: MediaInfo) -> None:
+    """Файл тот же, что разбирали: иначе выбранные индексы дорожек — чужие."""
+    try:
+        st = info.path.stat()
+    except OSError:
+        raise ServiceError("Оригинал пропал — ничего не меняю.") from None
+    if st.st_size != info.size or (info.mtime_ns and st.st_mtime_ns != info.mtime_ns):
+        raise ServiceError(
+            f"«{info.path.name}» изменился с момента разбора (его перезалили или уже "
+            "облегчили). Ничего не меняю — откройте /heavy заново."
+        )
 
 
 def parse_probe(path: Path, data: dict) -> MediaInfo:
@@ -394,6 +417,7 @@ async def run_job(
             # Метку видит ytdl-update.sh на хосте и не перезапускает бота посреди работы
             lock.parent.mkdir(parents=True, exist_ok=True)
             lock.write_text(f"{os.getpid()} {info.path}\n", encoding="utf-8")
+            await asyncio.to_thread(_ensure_unchanged, info)
             await _remux(info, keep, work_file, progress)
             await _report(progress, "verify", 1.0, 0)
             new = await _verify(info, keep, work_file)
@@ -460,9 +484,12 @@ async def _remux(info: MediaInfo, keep: set[int], out: Path, progress: Progress 
                     fraction = min(int(value) / 1e6 / info.duration, 1.0)
                     await _report(progress, "remux", fraction, written)
         await proc.wait()
-    except asyncio.CancelledError:
-        proc.kill()
-        await proc.wait()
+    except BaseException:
+        # Не только отмена: любая ошибка в цикле чтения оставила бы ffmpeg
+        # работать дальше, а drain ниже ждал бы его до конца
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
         raise
     finally:
         await drain
@@ -513,10 +540,44 @@ async def _copy_with_progress(src: Path, dst: Path, progress: Progress | None) -
         raise
 
 
+def _flush_and_check(path: Path, expected: int) -> None:
+    """Копия целиком на диске, и её размер совпадает с проверенным файлом.
+
+    Без этого подмена шла сразу после copyfile, пока хвост файла ещё в кэше
+    страниц: пропади свет в эти секунды (ИБП у сервера нет) — в медиатеке
+    остался бы обрезанный фильм, который с виду открывается.
+    """
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+        size = os.fstat(fd).st_size
+    finally:
+        os.close(fd)
+    if size != expected:
+        raise ServiceError(
+            f"Копия в медиатеке неполная: {size / GB:.1f} ГБ из {expected / GB:.1f}. "
+            "Оригинал не тронут."
+        )
+
+
+def _fsync_dir(path: Path) -> None:
+    # Переименования тоже должны дойти до диска. FUSE (mergerfs) может не
+    # поддерживать fsync каталога — тогда просто полагаемся на ядро.
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
 async def _install(info: MediaInfo, out: Path, progress: Progress | None) -> tuple[Path, Path]:
     src = info.path
     if not src.is_file():
         raise ServiceError("Оригинал пропал, пока шла пересборка, — ничего не меняю.")
+    await asyncio.to_thread(_ensure_unchanged, info)
     lib_dir = src.parent
     final = src.with_suffix(".mkv")
     if final != src and final.exists():
@@ -532,6 +593,11 @@ async def _install(info: MediaInfo, out: Path, progress: Progress | None) -> tup
 
     part = lib_dir / f".{final.name}{PART_SUFFIX}"
     await _copy_with_progress(out, part, progress)
+    try:
+        await asyncio.to_thread(_flush_and_check, part, size)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
     st = src.stat()
     try:
         os.chown(part, st.st_uid, st.st_gid)
@@ -562,6 +628,8 @@ async def _install(info: MediaInfo, out: Path, progress: Progress | None) -> tup
             ) from e
         part.unlink(missing_ok=True)
         raise ServiceError(f"Сбой при замене файла: {e.strerror}. Оригинал возвращён на место.") from e
+    await asyncio.to_thread(_fsync_dir, lib_dir)
+    await asyncio.to_thread(_fsync_dir, originals)
     return final, stored
 
 
@@ -594,7 +662,10 @@ def _check_stored(stored: Path) -> None:
 def _tidy_originals(folder: Path) -> None:
     try:
         if all(p.name == ".ignore" for p in folder.iterdir()):
-            shutil.rmtree(folder)
+            # Не rmtree: если облегчение как раз кладёт сюда оригинал, rmdir
+            # откажется удалять непустую папку, а rmtree снёс бы и его
+            (folder / ".ignore").unlink(missing_ok=True)
+            folder.rmdir()
     except OSError:
         pass
 
@@ -608,15 +679,48 @@ def delete_original(stored: Path) -> int:
     return size
 
 
-def restore(final: Path, stored: Path) -> Path:
-    """Возвращает оригинал на место, облегчённая копия удаляется."""
+_STAMP_RE = re.compile(r"\.\d{9,11}$")
+
+
+def _original_stem(stored: Path) -> str:
+    # При совпадении имён в .originals оригинал кладётся как «Имя.<время>.mkv»
+    return _STAMP_RE.sub("", stored.stem)
+
+
+def guess_final(stored: Path) -> Path | None:
+    """Облегчённая копия, которая заменила этот оригинал, если она на месте.
+
+    Нужна, когда сообщения с результатом уже нет (бот перезапускался), а
+    вернуть оригинал хочется из /originals.
+    """
+    lib_dir = stored.parent.parent
+    stem = _original_stem(stored)
+    for name in (f"{stem}.mkv", f"{stem}.lightened.mkv"):
+        candidate = lib_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def restore(final: Path | None, stored: Path) -> Path:
+    """Возвращает оригинал на место, облегчённая копия удаляется.
+
+    Порядок важен: сначала все проверки, потом оригинал встаёт на место, и
+    только после этого исчезает копия. Раньше копия удалялась первой, и при
+    отказе дальше по коду в медиатеке не оставалось ни одного файла.
+    """
     _check_stored(stored)
-    target = stored.parent.parent / stored.name
-    if final.is_file():
-        final.unlink()
-    if target.exists():
+    target = stored.parent.parent / (_original_stem(stored) + stored.suffix)
+    if target.exists() and target != final:
         raise ServiceError(f"На месте оригинала уже лежит {target.name} — не трогаю.")
-    os.rename(stored, target)
+    if target == final:
+        # Одно атомарное действие: копия заменяется оригиналом
+        os.replace(stored, target)
+    else:
+        os.rename(stored, target)
+        if final is not None and final.is_file():
+            final.unlink()
+    _fsync_dir(target.parent)
     _tidy_originals(stored.parent)
     return target
 
@@ -634,5 +738,38 @@ def startup_cleanup() -> None:
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
             for name in filenames:
                 if name.endswith(PART_SUFFIX):
+                    _recover_interrupted_swap(Path(dirpath, name))
                     log.info("Облегчение: удаляю недокопированный %s", name)
                     Path(dirpath, name).unlink(missing_ok=True)
+
+
+def _recover_interrupted_swap(part: Path) -> None:
+    """Сбой между «оригинал → .originals» и «копия → на место».
+
+    Окно короткое, но реальное (свет пропал, контейнер убили). Без этого в
+    медиатеке не осталось бы фильма вовсе: копия удаляется как недописанная,
+    а оригинал лежит в .originals, где Jellyfin его не видит. Возвращаем
+    оригинал, только если картина однозначна.
+    """
+    lib_dir = part.parent
+    final_name = part.name[1:-len(PART_SUFFIX)]
+    stem = Path(final_name).stem.removesuffix(".lightened")
+    originals = lib_dir / ORIGINALS_DIR
+    if not originals.is_dir():
+        return
+    in_library = [
+        p for p in lib_dir.iterdir()
+        if p.is_file() and p.stem == stem and p.suffix.lower() in VIDEO_EXTS
+    ]
+    if in_library:
+        return  # фильм на месте — нечего восстанавливать
+    candidates = [p for p in originals.iterdir() if p.is_file() and _original_stem(p) == stem]
+    if len(candidates) != 1:
+        return
+    stored = candidates[0]
+    target = lib_dir / (stem + stored.suffix)
+    try:
+        os.rename(stored, target)
+        log.warning("Облегчение: подмена была прервана — вернул оригинал %s на место", target.name)
+    except OSError as e:
+        log.error("Облегчение: не удалось вернуть оригинал %s: %s", stored, e)

@@ -19,6 +19,7 @@ Telegram через сам VPN. Упал VPN — упал и канал, по к
 import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,8 @@ OUT_DIR = os.environ.get("VPN_MIRROR_OUT", "/home/san/vpn-mirror/www")
 PUBLIC_URL = os.environ.get("VPN_MIRROR_PUBLIC_URL", "http://192.168.101.7:8090")
 SUB_PORT = int(os.environ.get("VPN_MIRROR_SUB_PORT", "8080"))
 FETCH_TIMEOUT = 20
+NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,32}")      # как в vpn-bot-ctl на VPS
+TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{16,64}")    # secrets.token_urlsafe(24) = 32
 
 
 def fail(msg):
@@ -68,7 +71,19 @@ def fetch_users():
     users = data.get("users") or []
     if not users:
         fail("VPS вернул пустой список пользователей")
+    # Имя и токен уходят в пути файлов (qr/<имя>-local.png, sub/<токен>).
+    # Что-то кроме букв, цифр, _ и - — это уже не наши данные: «../» увёл
+    # бы запись за пределы каталога зеркала. Отменяем прогон целиком.
+    for u in users:
+        if not NAME_RE.fullmatch(str(u.get("name", ""))):
+            fail("VPS прислал недопустимое имя пользователя")
+        if u.get("sub") and not TOKEN_RE.fullmatch(_token(u["sub"])):
+            fail("VPS прислал недопустимый токен подписки")
     return users
+
+
+def _token(sub_url):
+    return sub_url.rstrip("/").rsplit("/", 1)[-1]
 
 
 def direct_url(sub_url):
@@ -92,6 +107,11 @@ def fetch_sub(url):
         fail("не удалось забрать подписку %s: %s" % (url, type(e).__name__))
     if "type: mieru" not in body:
         fail("подписка %s пришла без узлов mieru — похоже, битая" % url)
+    # Подписка идёт по открытому HTTP через чужие сети. Подменить в ней адрес
+    # сервера и раздать это всем с нашего домена не выйдет: узлы основного
+    # сервера обязаны указывать на тот VPS, с которого мы её и забираем.
+    if "server: %s" % VPS_HOST not in body:
+        fail("подписка %s указывает не на %s — не раздаю её" % (url, VPS_HOST))
     return body
 
 

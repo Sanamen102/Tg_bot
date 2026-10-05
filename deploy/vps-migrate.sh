@@ -294,6 +294,12 @@ sudo python3 "$HERE/vpn-bridges.py" --probe "$NEW_HOST" \
 # --- 10. переключение домашней стороны ---------------------------------
 say "10/11  Переключаю дом на новый адрес"
 sed -i "s|^VPN_SSH_HOST=.*|VPN_SSH_HOST=$NEW_HOST|" "$BOT_DIR/.env"
+# Запомненный ключ нового VPS для бота: без него бот отказывается ходить на
+# сервер (защита от подмены), с ключом старого — тоже.
+ssh-keyscan -T 10 "$NEW_HOST" 2>/dev/null | grep -v '^#' > "$BOT_DIR/ssh/vpn_known_hosts.tmp" \
+    && [ -s "$BOT_DIR/ssh/vpn_known_hosts.tmp" ] \
+    && mv "$BOT_DIR/ssh/vpn_known_hosts.tmp" "$BOT_DIR/ssh/vpn_known_hosts" \
+    || warn "не удалось снять ключ $NEW_HOST для бота — /vpn будет ругаться на ключ"
 if [ -f "$PANEL_DIR/.env" ]; then
     sed -i "s|^VPN_PANEL_HOST=.*|VPN_PANEL_HOST=$NEW_HOST|" "$PANEL_DIR/.env"
     grep -q '^VPN_PANEL_HOST=' "$PANEL_DIR/.env" || echo "VPN_PANEL_HOST=$NEW_HOST" >> "$PANEL_DIR/.env"

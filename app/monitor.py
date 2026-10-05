@@ -6,11 +6,14 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from typing import TypeVar
 
 import httpx
 import psutil
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 
 from app.config import settings
 from app.formatting import esc, human_bytes, human_duration
@@ -128,7 +131,54 @@ _vpn_outage_start: datetime | None = None
 
 # Сообщения, которые надо доставить, даже если первая попытка не прошла:
 # сразу после восстановления VPN мост бота может ещё не переподключиться.
+# Сюда же идут разовые сообщения (рост SMART-счётчика): базовый уровень в
+# SQLite к моменту отправки уже обновлён, и при обрыве связи алерт «диск
+# деградирует» иначе не пришёл бы никогда.
 _pending_reports: list[str] = []
+# В очереди лежит отчёт о простое VPN — он заменяет обычное «снова в порядке»
+_vpn_report_queued = False
+
+# Проверки, не вернувшиеся с прошлого цикла. Повисший вызов (statfs на
+# подвисшем mergerfs, docker API, smartctl на умирающем диске) раньше держал
+# monitor_check целиком, и APScheduler молча пропускал все следующие запуски:
+# алерты пропадали до перезапуска бота. Теперь зависшая проверка сама
+# становится алертом, а остальные идут своим чередом. Новую копию не
+# запускаем, пока старая не вернулась: иначе потоки повисших вызовов копились
+# бы в пуле и рано или поздно заняли бы его целиком.
+_hung: dict[str, asyncio.Future] = {}
+
+T = TypeVar("T")
+
+
+class _Hung(Exception):
+    def __init__(self, name: str, timeout: float) -> None:
+        super().__init__(name)
+        self.name = name
+        self.timeout = timeout
+
+
+async def _guarded(name: str, factory: Callable[[], Awaitable[T]], timeout: float) -> T:
+    prev = _hung.get(name)
+    if prev is not None:
+        if not prev.done():
+            raise _Hung(name, timeout)
+        _hung.pop(name)
+        if not prev.cancelled():
+            prev.exception()  # забираем, чтобы asyncio не ругался «never retrieved»
+    task = asyncio.ensure_future(factory())
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout)
+    except TimeoutError:
+        _hung[name] = task
+        raise _Hung(name, timeout) from None
+
+
+def _hung_problem(problems: dict[str, str], e: _Hung) -> None:
+    log.warning("Мониторинг: проверка «%s» не вернулась за %.0f с", e.name, e.timeout)
+    problems[f"hung:{e.name}"] = (
+        f"⏳ Проверка «{esc(e.name)}» не отвечает дольше {e.timeout:.0f} с — "
+        "что-то зависло (диск, docker или сеть). Остальные проверки работают."
+    )
 
 
 async def _collect_problems() -> tuple[dict[str, str], list[str]]:
@@ -137,29 +187,50 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
     Постоянные живут в _active_alerts (алерт + «снова в порядке»),
     разовые (например, рост SMART-счётчика) отправляются один раз.
     """
-    global _awg_fail_cycles, _vpn_fail_cycles, _vpn_outage_start
+    global _awg_fail_cycles, _vpn_fail_cycles, _vpn_outage_start, _vpn_report_queued
     problems: dict[str, str] = {}
     oneoffs: list[str] = []
 
     try:
-        disks = await asyncio.to_thread(system_service.get_disks)
+        disks = await _guarded(
+            "место на дисках", lambda: asyncio.to_thread(system_service.get_disks), 60
+        )
+        seen = {d.label for d in disks}
         for d in disks:
-            if d.is_alert:
+            if not d.mounted:
+                problems[f"unmounted:{d.label}"] = (
+                    f"💽 Диск «{esc(d.label)}» не смонтирован: на месте {esc(d.path)} "
+                    "пустая папка системного диска. Всё, что туда запишется, "
+                    "ляжет на системный диск."
+                )
+            elif d.is_alert:
                 problems[f"disk:{d.label}"] = (
                     f"💽 Диск «{esc(d.label)}» заполнен на {d.percent:.0f}% "
                     f"(свободно {human_bytes(d.free)})."
                 )
+        # Путь, который вообще не читается, get_disks молча пропускает
+        for label, path in settings.disks:
+            if label not in seen:
+                problems[f"gone:{label}"] = (
+                    f"💽 Диск «{esc(label)}» недоступен: {esc(path)} не читается."
+                )
+    except _Hung as e:
+        _hung_problem(problems, e)
     except Exception:
         log.exception("Мониторинг: не удалось проверить диски")
 
     try:
-        containers = await asyncio.to_thread(docker_service.list_containers)
+        containers = await _guarded(
+            "docker", lambda: asyncio.to_thread(docker_service.list_containers), 60
+        )
         for c in containers:
             if c.is_problem:
                 problems[f"container:{c.name}"] = (
                     f"🐳 Контейнер «{esc(c.name)}» в состоянии «{esc(c.status)}», "
                     f"хотя должен работать. Логи: /logs {esc(c.name)}"
                 )
+    except _Hung as e:
+        _hung_problem(problems, e)
     except ServiceError as e:
         log.warning("Мониторинг: %s", e.user_message)
     except Exception:
@@ -188,7 +259,17 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
 
     if settings.smart_device_list:
         try:
-            for info in await smart_service.read_all():
+            # read_smart сам ограничен 60 с на диск, общий предел с запасом
+            infos = await _guarded(
+                "SMART", smart_service.read_all,
+                (smart_service.SMART_TIMEOUT + 15) * len(settings.smart_device_list),
+            )
+            for info in infos:
+                if info.error:
+                    problems[f"smart:{info.device}"] = (
+                        f"💽 SMART {esc(info.device)}: диск не читается — {esc(info.error)}"
+                    )
+                    continue
                 # Состояния (FAILED, pending-сектора...) — обычный алерт,
                 # висит, пока проблема не исчезнет
                 if info.state_problems:
@@ -220,6 +301,8 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
                             f"{baseline} → {value} — диск деградирует! "
                             "Проверьте /smart и планируйте замену."
                         )
+        except _Hung as e:
+            _hung_problem(problems, e)
         except ServiceError as e:
             log.warning("Мониторинг SMART: %s", e.user_message)
         except Exception:
@@ -253,6 +336,7 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
             if await vpn_service.probe_port(settings.vpn_check_port):
                 if _vpn_outage_start and _vpn_fail_cycles >= settings.vpn_confirm_fails:
                     _pending_reports.append(_vpn_outage_text(_vpn_outage_start, datetime.now()))
+                    _vpn_report_queued = True
                 _vpn_fail_cycles = 0
                 _vpn_outage_start = None
             else:
@@ -306,26 +390,32 @@ def _vpn_outage_text(start: datetime, end: datetime) -> str:
 
 
 async def monitor_check(bot: Bot) -> None:
+    global _vpn_report_queued
     chat_id = settings.notify_chat_id
     if chat_id is None:
         return
 
     problems, oneoffs = await _collect_problems()
+    _pending_reports.extend(oneoffs)
 
     new_keys = set(problems) - set(_active_alerts)
     resolved_keys = set(_active_alerts) - set(problems)
 
-    if _pending_reports:
-        # Очередь чистим только после успешной отправки: если Telegram ещё
-        # недоступен, исключение оставит отчёт до следующей проверки.
-        await bot.send_message(chat_id, "\n\n".join(_pending_reports))
-        _pending_reports.clear()
+    # По одному и удаляем только после успешной отправки: если Telegram ещё
+    # недоступен, исключение оставит остаток очереди до следующей проверки.
+    while _pending_reports:
+        try:
+            await bot.send_message(chat_id, _pending_reports[0])
+        except TelegramBadRequest:
+            # Telegram отверг сам текст — повтор не поможет, а застрявшее
+            # сообщение заблокировало бы очередь навсегда
+            log.exception("Мониторинг: Telegram не принял сообщение, пропускаю")
+        _pending_reports.pop(0)
+    if _vpn_report_queued:
         # Отчёт о простое заменяет обычное «снова в порядке» для VPN
         resolved_keys.discard("vpn:порт")
         _active_alerts.pop("vpn:порт", None)
-
-    if oneoffs:
-        await bot.send_message(chat_id, "\n\n".join(oneoffs))
+        _vpn_report_queued = False
 
     if new_keys:
         lines = ["🚨 <b>HomePilot: обнаружены проблемы</b>\n"]
@@ -334,7 +424,7 @@ async def monitor_check(bot: Bot) -> None:
 
     if resolved_keys:
         lines = ["✅ <b>HomePilot: проблемы устранены</b>\n"]
-        lines += [f"• {k.split(':', 1)[-1]} снова в порядке" for k in sorted(resolved_keys)]
+        lines += [f"• {esc(k.split(':', 1)[-1])} снова в порядке" for k in sorted(resolved_keys)]
         await bot.send_message(chat_id, "\n".join(lines))
 
     _active_alerts.clear()
@@ -469,18 +559,34 @@ async def downtime_report(bot: Bot) -> None:
         return
 
     fmt = "%d.%m в %H:%M"
-    await bot.send_message(
-        chat_id,
+    text = (
         "⚡ <b>Сервер не работал " + human_duration(gap) + "</b>\n"
         "Пропал " + datetime.fromtimestamp(last).strftime(fmt) + ", "
         "поднялся " + datetime.fromtimestamp(boot).strftime(fmt) + ".\n\n"
         "Скорее всего отключали свет. Аккумулятора у сервера нет, "
-        "поэтому сообщить в тот момент было некому.",
+        "поэтому сообщить в тот момент было некому."
     )
 
     # Закрываем разрыв сразу: иначе повторный запуск бота до первой
-    # плановой записи метрик прислал бы тот же отчёт ещё раз.
+    # плановой записи метрик прислал бы тот же отчёт ещё раз. Текст уже
+    # посчитан и живёт в этой задаче, пока не уйдёт.
     st = await system_service.get_status()
     await asyncio.to_thread(
         metrics.record, st.cpu_percent, st.ram_percent, st.cpu_temp
     )
+
+    # После отключения света роутер и VPN-мост поднимаются позже сервера, и
+    # первая попытка отправки обычно падает. Раньше она была единственной,
+    # и отчёт терялся ровно в том случае, ради которого написан.
+    delay = 30
+    while True:
+        try:
+            await bot.send_message(chat_id, text)
+            return
+        except TelegramBadRequest:
+            log.exception("Отчёт о простое: Telegram не принял текст")
+            return
+        except Exception as e:  # сетевые ошибки и ошибки socks-прокси
+            log.warning("Отчёт о простое не ушёл: %s. Повтор через %d с.", e, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 600)

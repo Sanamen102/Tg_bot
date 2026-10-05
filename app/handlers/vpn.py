@@ -7,6 +7,7 @@
 """
 
 import io
+import secrets
 from datetime import datetime, timezone
 
 from aiogram import F, Router
@@ -26,9 +27,10 @@ from app.services.errors import ServiceError
 
 router = Router(name="vpn")
 
-# Ожидающие подтверждения смены адреса: chat_id -> новый хост.
-# В callback_data не влезает (лимит 64 байта), поэтому держим здесь.
-_pending_server: dict[int, str] = {}
+# Ожидающие подтверждения смены адреса: токен запроса -> новый хост.
+# Токен свой у каждого /vpn_server: раньше ключом был чат, и кнопка
+# «Переехать» под старым сообщением переезжала на адрес из более нового.
+_pending_server: dict[str, str] = {}
 
 
 def _ago(dt: datetime | None) -> str:
@@ -212,7 +214,8 @@ async def cmd_vpn_server(message: Message, command: CommandObject) -> None:
             "Перегенерирую все подписки — обходить людей вручную не придётся."
         )
         return
-    _pending_server[message.chat.id] = host
+    token = secrets.token_urlsafe(6)
+    _pending_server[token] = host
     await message.answer(
         f"Сменить адрес сервера на <code>{esc(host)}</code>?\n\n"
         "Все подписки перепишутся на новый адрес. У кого прямая ссылка "
@@ -220,8 +223,8 @@ async def cmd_vpn_server(message: Message, command: CommandObject) -> None:
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="🚚 Переехать", callback_data="vpn:srvok"),
-                    InlineKeyboardButton(text="Отмена", callback_data="vpn:cancel"),
+                    InlineKeyboardButton(text="🚚 Переехать", callback_data=f"vpn:srvok:{token}"),
+                    InlineKeyboardButton(text="Отмена", callback_data=f"vpn:cancel:{token}"),
                 ]
             ]
         ),
@@ -239,7 +242,8 @@ async def cb_vpn(callback: CallbackQuery) -> None:
         return
 
     if action == "cancel":
-        _pending_server.pop(msg.chat.id, None)
+        if arg:
+            _pending_server.pop(arg, None)
         await callback.answer("Отменено.")
         try:
             await msg.edit_text("Отменено.")
@@ -266,7 +270,7 @@ async def cb_vpn(callback: CallbackQuery) -> None:
             )
             return
         if action == "srvok":
-            host = _pending_server.pop(msg.chat.id, None)
+            host = _pending_server.pop(arg, None) if arg else None
             if not host:
                 await msg.answer("Не помню, куда переезжали — повторите /vpn_server.")
                 return

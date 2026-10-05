@@ -12,6 +12,7 @@
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -65,6 +66,20 @@ def _parse_ts(value: str | None) -> datetime | None:
         return None
 
 
+_warned_no_known_hosts = False
+
+
+def _known_hosts() -> str | None:
+    global _warned_no_known_hosts
+    path = settings.vpn_ssh_known_hosts
+    if path and os.path.isfile(path):
+        return path
+    if not _warned_no_known_hosts:
+        log.warning("Нет %s — ключ VPS не проверяется", path)
+        _warned_no_known_hosts = True
+    return None
+
+
 async def _run(action: str, arg: str | None = None) -> dict:
     """Дёргает обёртку на VPS и возвращает разобранный JSON."""
     if action not in ACTIONS:
@@ -81,13 +96,19 @@ async def _run(action: str, arg: str | None = None) -> dict:
             port=settings.vpn_ssh_port,
             username=settings.vpn_ssh_user,
             client_keys=[settings.vpn_ssh_key_path],
-            known_hosts=None,
+            known_hosts=_known_hosts(),
             connect_timeout=15,
         ) as conn:
             result = await conn.run(command, check=False, timeout=90)
     except asyncssh.PermissionDenied as e:
         raise ServiceError(
             "VPS отклонил ключ бота. Проверьте authorized_keys на сервере."
+        ) from e
+    except asyncssh.HostKeyNotVerifiable as e:
+        raise ServiceError(
+            "Ключ VPS не совпал с запомненным — ничего не отправляю. Если сервер "
+            "переустанавливали или переезжали, обновите ssh/vpn_known_hosts "
+            "(это делает deploy/vps-migrate.sh). Если нет — кто-то выдаёт себя за VPS."
         ) from e
     except (OSError, asyncssh.Error) as e:
         log.warning("SSH до VPS не удался: %s", type(e).__name__)

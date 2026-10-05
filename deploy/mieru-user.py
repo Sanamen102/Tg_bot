@@ -266,4 +266,18 @@ def main():
     return 0
 
 
-sys.exit(main())
+LOCK = "/root/.mieru-user.lock"
+
+
+def locked_main():
+    # Бот, панель и ручной запуск — отдельные процессы, а каждая команда
+    # читает оба json целиком и пишет обратно. Без блокировки два почти
+    # одновременных add одного имени заводили двух «alice» (и вечную ссылку,
+    # которую del уже не найдёт), а add и del теряли правки друг друга.
+    import fcntl
+    with open(LOCK, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        return main()
+
+
+sys.exit(locked_main())

@@ -10,6 +10,7 @@ RemainAfterExit=yes
 ExecStart=/home/san/tv-vpn/vpn.sh telegram
 ExecStart=/home/san/tv-vpn/meta.sh
 ExecStart=/home/san/tv-vpn/meta.sh
+ExecStart=/home/san/tv-vpn/ph.sh
 ExecStop=/home/san/tv-vpn/vpn.sh off
 
 [Install]

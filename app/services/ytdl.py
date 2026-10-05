@@ -12,6 +12,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from app.config import settings
 from app.services.errors import ServiceError
@@ -67,11 +68,21 @@ class Downloaded:
     duration: int | None
 
 
+def _host_matches(url: str, hosts: tuple[str, ...]) -> bool:
+    # Сравниваем именно хост, а не подстроку ссылки: иначе «x.com» ловил
+    # netflix.com и dropbox.com, а любой хост можно было вписать в query.
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return any(host == h or host.endswith("." + h) for h in hosts)
+
+
 def find_url(text: str) -> str | None:
     """Первая ссылка из сообщения, если хост поддерживается."""
     for match in _URL_RE.findall(text or ""):
         url = match.rstrip(").,;")
-        if any(host in url.lower() for host in SUPPORTED_HOSTS):
+        if _host_matches(url, SUPPORTED_HOSTS):
             return url
     return None
 
@@ -90,9 +101,16 @@ async def _run(args: list[str], timeout: int = 60) -> tuple[int, str, str]:
         ) from None
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
-    except asyncio.TimeoutError:
+    except BaseException as e:
+        # И по таймауту, и при отмене: иначе yt-dlp продолжал бы качать
+        # в фоне, а процесс оставался зомби
         proc.kill()
-        raise ServiceError("Скачивание затянулось дольше 15 минут и было прервано.") from None
+        await proc.wait()
+        if isinstance(e, TimeoutError):
+            raise ServiceError(
+                f"yt-dlp не уложился в {timeout // 60 or 1} мин и был остановлен."
+            ) from None
+        raise
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 
@@ -105,8 +123,7 @@ def _base_args(use_proxy: bool) -> list[str]:
 
 def needs_proxy(url: str) -> bool:
     """Сайт, который заведомо не открывается напрямую от нашего провайдера."""
-    low = url.lower()
-    return any(host in low for host in PROXY_ONLY_HOSTS)
+    return _host_matches(url, PROXY_ONLY_HOSTS)
 
 
 async def _run_smart(
@@ -290,9 +307,12 @@ async def _run_gallery(args: list[str], url: str, timeout: int) -> tuple[int, st
         return 127, "", "gallery-dl not found"
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
-    except asyncio.TimeoutError:
+    except BaseException as e:
         proc.kill()
-        return 1, "", "timeout"
+        await proc.wait()
+        if isinstance(e, TimeoutError):
+            return 1, "", "timeout"
+        raise
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 
 

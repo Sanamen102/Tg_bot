@@ -153,14 +153,18 @@ async def main() -> None:
 
         await _ensure_charge_limit()
 
-    # Отчёт о простое — до планировщика: если сервер только что подняли
-    # после отключения света, об этом стоит сказать первым делом.
-    try:
-        from app.monitor import downtime_report
+    # Отчёт о простое — до планировщика: разрыв в метриках надо измерить
+    # раньше, чем планировщик запишет первую новую точку. Сама отправка
+    # идёт в фоне с повторами: после отключения света сеть до Telegram
+    # обычно поднимается позже бота, и ждать её здесь — значит не стартовать.
+    from app.monitor import downtime_report
 
-        await downtime_report(bot)
-    except Exception:
-        log.exception("Не удалось отчитаться о простое")
+    def _log_failure(task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception():
+            log.error("Не удалось отчитаться о простое", exc_info=task.exception())
+
+    downtime_task = asyncio.create_task(downtime_report(bot))
+    downtime_task.add_done_callback(_log_failure)
 
     # Прерванная перезапуском пересборка фильма не продолжится — убираем её следы
     if settings.lighten_enabled:

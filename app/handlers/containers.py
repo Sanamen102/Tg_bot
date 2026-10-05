@@ -128,6 +128,9 @@ async def cb_restart(callback: CallbackQuery) -> None:
     if name not in settings.restart_whitelist:
         await callback.answer("Контейнер не в whitelist.", show_alert=True)
         return
+    # Отвечаем на нажатие сразу: перезапуск Immich идёт дольше, чем Telegram
+    # ждёт ответа на кнопку, и поздний answer падал с «query is too old»
+    await callback.answer("Перезапускаю…")
     if callback.message:
         await callback.message.edit_text(f"🔄 Перезапускаю <b>{esc(name)}</b>…")
     try:
@@ -135,8 +138,6 @@ async def cb_restart(callback: CallbackQuery) -> None:
     except ServiceError as e:
         if callback.message:
             await callback.message.edit_text(f"⚠️ {esc(e.user_message)}")
-        await callback.answer()
         return
     if callback.message:
         await callback.message.edit_text(f"✅ Контейнер <b>{esc(name)}</b> перезапущен.")
-    await callback.answer("Готово")

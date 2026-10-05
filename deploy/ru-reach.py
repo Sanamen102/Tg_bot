@@ -32,10 +32,12 @@ def check(host, port, nodes):
         res = get("/check-result/" + rid)
         if all(res.get(n) is not None for n in nodes):
             break
+    # None — узел так и не ответил. Это не «порт закрыт»: считать его
+    # непрозрачным значило бы зря остановить переезд (код 2).
     seen = {}
     for n in nodes:
         r = res.get(n)
-        seen[n] = bool(r) and isinstance(r[0], dict) and "time" in r[0]
+        seen[n] = None if r is None else (bool(r) and isinstance(r[0], dict) and "time" in r[0])
     return seen
 
 
@@ -54,13 +56,19 @@ def main():
         worst = 0
         for port in ports:
             seen = check(host, port, nodes)
-            good = sum(seen.values())
-            short = " ".join(n.split(".")[0] + ("+" if v else "-") for n, v in seen.items())
-            print("   порт %d: виден с %d из %d узлов РФ  [%s]" % (port, good, len(nodes), short))
-            if good == 0:
-                worst = max(worst, 2)
-            elif good < len(nodes):
-                worst = 3 if worst != 2 else 2
+            answered = {n: v for n, v in seen.items() if v is not None}
+            good = sum(answered.values())
+            short = " ".join(
+                n.split(".")[0] + ("?" if v is None else "+" if v else "-") for n, v in seen.items()
+            )
+            print("   порт %d: виден с %d из %d ответивших узлов РФ  [%s]"
+                  % (port, good, len(answered), short))
+            if not answered:
+                worst = max(worst, 1)  # проверить не удалось
+            elif good == 0:
+                worst = 2
+            elif good < len(answered) and worst != 2:
+                worst = 3
         return worst
     except Exception as e:
         print("   check-host недоступен: %s: %s" % (type(e).__name__, e))

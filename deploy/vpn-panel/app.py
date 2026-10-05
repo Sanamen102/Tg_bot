@@ -14,6 +14,7 @@
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -115,9 +116,36 @@ def note_fail(ip):
     _fails.setdefault(ip, []).append(time.time())
 
 
+def _from_proxy(addr):
+    # nginx живёт на хосте и ходит на 127.0.0.1:8091 — до контейнера такой
+    # запрос доходит со шлюза docker-сети (172.16.0.0/12). Из локальной сети
+    # на 8091 приходят напрямую, со своего 192.168.x.x.
+    try:
+        ip = ipaddress.ip_address(addr or "")
+    except ValueError:
+        return False
+    return ip.is_loopback or ip in ipaddress.ip_network("172.16.0.0/12")
+
+
 def client_ip():
-    fwd = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "")
-    return fwd.split(",")[0].strip() or request.remote_addr or "?"
+    # Заголовкам верим только от nginx: он перезаписывает X-Real-IP своим
+    # $remote_addr. Иначе любой в локальной сети подставлял бы свой
+    # X-Real-IP и обходил лимит попыток входа.
+    if _from_proxy(request.remote_addr):
+        fwd = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "")
+        ip = fwd.split(",")[0].strip()
+        if ip:
+            return ip
+    return request.remote_addr or "?"
+
+
+def _safe_next(target):
+    # Только пути внутри панели: иначе ссылка вида /login?next=https://чужой
+    # после верного пароля уводила бы на сторонний сайт
+    if target and target.startswith("/") and not target.startswith("//") \
+            and "\\" not in target:
+        return target
+    return url_for("index")
 
 
 def login_required(f):
@@ -132,8 +160,10 @@ def login_required(f):
 def check_csrf():
     """POST без совпадающего токена не выполняем: панель под паролем, но
     ссылку на неё могут скормить браузеру со стороны."""
-    if not hmac.compare_digest(request.form.get("csrf", ""),
-                               session.get("csrf", "")):
+    # Сравниваем байты: compare_digest на str с не-ASCII символами бросает
+    # TypeError, и вместо 400 получался 500
+    if not hmac.compare_digest(request.form.get("csrf", "").encode(),
+                               session.get("csrf", "").encode()):
         abort(400)
 
 
@@ -152,7 +182,7 @@ def login():
             return render_template("login.html"), 429
         # Логин сверяем тем же compare_digest, что и пароль: сравнение по
         # времени не должно подсказывать, угадано ли имя.
-        name_ok = hmac.compare_digest(request.form.get("login", ""), LOGIN)
+        name_ok = hmac.compare_digest(request.form.get("login", "").encode(), LOGIN.encode())
         given = hashlib.sha256(request.form.get("password", "").encode()).hexdigest()
         if PASSWORD_HASH and name_ok and hmac.compare_digest(given, PASSWORD_HASH):
             session.clear()
@@ -160,7 +190,7 @@ def login():
             session["csrf"] = secrets.token_urlsafe(32)
             session.permanent = True
             app.logger.info("вход с %s", ip)
-            return redirect(request.args.get("next") or url_for("index"))
+            return redirect(_safe_next(request.args.get("next")))
         note_fail(ip)
         app.logger.warning("неудачный вход с %s", ip)
         flash("Неверный логин или пароль", "err")
