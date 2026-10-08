@@ -149,6 +149,12 @@ class Settings(BaseSettings):
     # Метка «идёт пересборка»: её видит ytdl-update.sh на хосте и не
     # перезапускает бота посреди работы. Путь относительно /app (data/ — том).
     lighten_lock_path: str = "data/lighten.lock"
+    # Резервная копия фото на USB-диск: файл состояния пишет хост
+    # (server/sbin/photo-backup.py), бот по нему алертит и показывает сводку.
+    # Пока файла нет — бэкап не настроен, и бот молчит.
+    photo_backup_status: str = "data/photo-backup.json"
+    # Сколько дней без удачной копии терпеть, если диск просто отключён
+    photo_backup_max_age_days: int = 3
     # Как пути Transmission соотносятся с путями бота, «от:к». Transmission видит
     # медиатеку как /downloads, бот — как /media.
     torrent_path_map: str = "/downloads:/media"

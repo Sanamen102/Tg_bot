@@ -1,0 +1,12 @@
+[Unit]
+Description=Ночная резервная копия фото на USB-диск
+
+[Timer]
+# Ночью по местному времени: сервер живёт в UTC, и голое «03:30» было бы
+# 08:30 утра. Дамп базы Immich (02:00 UTC) попадает в копию следующей ночи.
+OnCalendar=*-*-* 02:30 Asia/Yekaterinburg
+# Сервер был выключен в 03:30 — сделать при включении
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Резервная копия фото Immich на USB-диск
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/photo-backup.py
+# Не мешать Jellyfin и Immich: диск и процессор — только в простое
+Nice=10
+IOSchedulingClass=idle
+# Первая полная копия по USB 2.0 идёт часов пять
+TimeoutStartSec=12h

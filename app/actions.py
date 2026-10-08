@@ -19,6 +19,7 @@ from aiogram.types import (
 from app.config import settings
 from app.formatting import esc, human_bytes, human_duration, ru_date, ru_years_ago
 from app.services import docker_service
+from app.services import photo_backup
 from app.services import system as system_service
 from app.services import zapret as zapret_service
 from app.services.errors import ServiceError
@@ -142,6 +143,7 @@ async def build_today_text() -> str:
         tasks.append(_safe(_awg_summary(), "🔒 <b>AWG-туннель:</b>"))
     if settings.watch_services:
         tasks.append(_safe(_watch_summary(), "🌐 <b>Сервисы:</b>"))
+    tasks.append(_safe(_photo_backup_summary(), "🗄 <b>Бэкап фото:</b>"))
     parts = await asyncio.gather(*tasks)
     today = datetime.now()
     header = f"🏠 <b>HomePilot — сводка на {ru_date(today)}</b>\n"
@@ -171,12 +173,18 @@ async def _jellyfin_week() -> str:
     return "\n".join(lines)
 
 
+async def _photo_backup_summary() -> str:
+    status = await asyncio.to_thread(photo_backup.read_status)
+    return photo_backup.summary_line(status)
+
+
 async def build_week_text() -> str:
     parts = await asyncio.gather(
         _safe(_server_summary(), "🖥 <b>Сервер:</b>"),
         _safe(_docker_summary(), "🐳 <b>Контейнеры:</b>"),
         _safe(_immich_week(), "📸 <b>Immich:</b>"),
         _safe(_jellyfin_week(), "🎬 <b>Jellyfin:</b>"),
+        _safe(_photo_backup_summary(), "🗄 <b>Бэкап фото:</b>"),
     )
     header = "🗓 <b>HomePilot — сводка за неделю</b>\n"
     return "\n\n".join([header, *parts])

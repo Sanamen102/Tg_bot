@@ -19,6 +19,7 @@ from app.config import settings
 from app.formatting import esc, human_bytes, human_duration
 from app.services import docker_service
 from app.services import metrics
+from app.services import photo_backup
 from app.services import smart as smart_service
 from app.services import system as system_service
 from app.services import tunnel as tunnel_service
@@ -364,6 +365,15 @@ async def _collect_problems() -> tuple[dict[str, str], list[str]]:
                 )
         except Exception:
             log.exception("Мониторинг: не удалось проверить VPN")
+
+    try:
+        backup_status = await asyncio.to_thread(photo_backup.read_status)
+        if backup_status:
+            text = photo_backup.problem(backup_status)
+            if text:
+                problems["photo-backup:бэкап фото"] = text
+    except Exception:
+        log.exception("Мониторинг: не удалось проверить бэкап фото")
 
     for label, url in settings.watch_services:
         try:
