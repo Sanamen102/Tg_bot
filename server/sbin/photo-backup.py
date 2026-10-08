@@ -41,6 +41,7 @@ LOCK = "/run/photo-backup.lock"
 MEDIA_DIRS = ("library", "upload", "profile")
 DELETED = "_удалённые"
 MIN_FREE = 20 * 1024 ** 3
+UPLOAD_PENDING_MAX = 500
 
 README = """\
 Резервная копия фотоархива Immich с домашнего сервера.
@@ -144,6 +145,14 @@ def backup():
         raise BackupError("USB-диск не подключён (раздел %s не найден)" % DISK_UUID)
     if not os.path.isdir(os.path.join(SRC, "library")):
         raise BackupError("нет %s/library — библиотека Immich не на месте, копировать нечего" % SRC)
+    # С включённым шаблоном хранения upload/ почти пуст: Immich раскладывает
+    # новые файлы по годам за минуты. Тысячи файлов там — идёт массовый
+    # переезд (смена шаблона). Скопируй мы их сейчас, завтра они «переедут»,
+    # и на диск лягут второй раз, а прежние копии — в _удалённые: +600 ГБ.
+    pending = sum(len(files) for _, _, files in os.walk(os.path.join(SRC, "upload")))
+    if pending > UPLOAD_PENDING_MAX:
+        raise BackupError("Immich ещё раскладывает файлы по папкам (в upload/ %d шт.) — "
+                          "копию отложил, чтобы не записать их дважды" % pending)
     mount(dev)
     try:
         usage = shutil.disk_usage(MNT)
