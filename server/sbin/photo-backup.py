@@ -111,6 +111,30 @@ def rsync(args):
     return out.stdout, out.returncode == 24
 
 
+def count_pending(upload):
+    """Файлы в upload/, которые ещё могут переехать в library/.
+
+    Не всё в upload/ ждёт раскладки, и первая версия этого счёта сорвала
+    первый бэкап 08.10.2026 (595 при пороге 500). Там остаются:
+      - .immich — служебная метка папки, её Immich проверяет при старте;
+      - пустые файлы без записи в базе (504 шт. по 0 байт, следы августовского
+        переезда сервера) — в них нет фото, раскладывать нечего;
+      - фото из корзины Immich: шаблон их не трогает до очистки корзины
+        (в тот раз 89 шт.) — эти считаются, но их на порядок меньше порога.
+    """
+    pending = 0
+    for root, _, files in os.walk(upload):
+        for name in files:
+            if name == ".immich":
+                continue
+            try:
+                if os.path.getsize(os.path.join(root, name)) > 0:
+                    pending += 1
+            except OSError:
+                pass
+    return pending
+
+
 def mount(dev):
     if os.path.ismount(MNT):
         src = run(["findmnt", "-no", "SOURCE", MNT]).stdout.strip()
@@ -149,7 +173,7 @@ def backup():
     # новые файлы по годам за минуты. Тысячи файлов там — идёт массовый
     # переезд (смена шаблона). Скопируй мы их сейчас, завтра они «переедут»,
     # и на диск лягут второй раз, а прежние копии — в _удалённые: +600 ГБ.
-    pending = sum(len(files) for _, _, files in os.walk(os.path.join(SRC, "upload")))
+    pending = count_pending(os.path.join(SRC, "upload"))
     if pending > UPLOAD_PENDING_MAX:
         raise BackupError("Immich ещё раскладывает файлы по папкам (в upload/ %d шт.) — "
                           "копию отложил, чтобы не записать их дважды" % pending)
