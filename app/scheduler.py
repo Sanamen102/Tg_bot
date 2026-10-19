@@ -123,8 +123,24 @@ async def _record_metrics() -> None:
         log.exception("Не удалось записать метрики")
 
 
+async def _heartbeat() -> None:
+    try:
+        await asyncio.to_thread(metrics.beat)
+    except Exception:
+        log.exception("Не удалось записать отметку «жив»")
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
+
+    # Отметка «жив» для отчёта о простое после загрузки: по ней видно и
+    # короткие отключения света, которые теряются между точками метрик
+    scheduler.add_job(
+        _heartbeat,
+        "interval",
+        seconds=monitor.HEARTBEAT_SECONDS,
+        name="heartbeat",
+    )
 
     daily = _parse_hhmm(settings.daily_memory_time)
     if daily:

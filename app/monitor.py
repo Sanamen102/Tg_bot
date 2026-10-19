@@ -539,10 +539,15 @@ async def internet_check(bot: Bot) -> None:
             log.warning("Интернет недоступен с %s", _net_outage_start)
 
 
-# Порог, ниже которого простой считаем штатной перезагрузкой. Метрики
-# пишутся раз в несколько минут, поэтому даже у обычного ребута между
-# последней точкой и загрузкой набегает несколько минут разрыва.
-DOWNTIME_MIN_SECONDS = 10 * 60
+# Бот отмечается живым раз в минуту, а от подачи питания до загрузки ядра
+# проходит ещё с полминуты. Всё, что дольше двух минут, — настоящий простой:
+# так видно и короткие отключения света, а не только длинные.
+HEARTBEAT_SECONDS = 60
+DOWNTIME_MIN_SECONDS = 2 * 60
+# Пока отметок «жив» ещё нет (первый запуск этой версии), считаем по
+# метрикам. Они пишутся раз в несколько минут, поэтому даже у обычного
+# ребута между последней точкой и загрузкой набегает несколько минут.
+DOWNTIME_MIN_SECONDS_BY_METRICS = 10 * 60
 
 
 async def downtime_report(bot: Bot) -> None:
@@ -558,14 +563,25 @@ async def downtime_report(bot: Bot) -> None:
     if chat_id is None:
         return
 
-    last = await asyncio.to_thread(metrics.last_ts)
+    beat = await asyncio.to_thread(metrics.last_beat)
+    if beat is not None:
+        last, clean = beat
+        threshold = DOWNTIME_MIN_SECONDS
+    else:
+        last, clean = await asyncio.to_thread(metrics.last_ts), False
+        threshold = DOWNTIME_MIN_SECONDS_BY_METRICS
+    # Сразу снимаем признак штатной остановки и закрываем разрыв: иначе
+    # повторный запуск бота до первой плановой отметки прислал бы тот же
+    # отчёт ещё раз, а свет, пропавший в эту минуту, сошёл бы за ребут.
+    await asyncio.to_thread(metrics.beat)
     if last is None:
         return
 
     boot = psutil.boot_time()
     gap = boot - last
+    # Штатная остановка — хост перезагружали руками, сообщать не о чем.
     # Отрицательный разрыв — перезапустился сам бот, хост при этом работал.
-    if gap < DOWNTIME_MIN_SECONDS:
+    if clean or gap < threshold:
         return
 
     fmt = "%d.%m в %H:%M"
@@ -575,14 +591,6 @@ async def downtime_report(bot: Bot) -> None:
         "поднялся " + datetime.fromtimestamp(boot).strftime(fmt) + ".\n\n"
         "Скорее всего отключали свет. Аккумулятора у сервера нет, "
         "поэтому сообщить в тот момент было некому."
-    )
-
-    # Закрываем разрыв сразу: иначе повторный запуск бота до первой
-    # плановой записи метрик прислал бы тот же отчёт ещё раз. Текст уже
-    # посчитан и живёт в этой задаче, пока не уйдёт.
-    st = await system_service.get_status()
-    await asyncio.to_thread(
-        metrics.record, st.cpu_percent, st.ram_percent, st.cpu_temp
     )
 
     # После отключения света роутер и VPN-мост поднимаются позже сервера, и

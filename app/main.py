@@ -99,6 +99,7 @@ async def main() -> None:
         zapret,
     )
     from app.scheduler import setup_scheduler
+    from app.services import metrics
 
     session = None
     if settings.telegram_proxy:
@@ -202,6 +203,12 @@ async def main() -> None:
                 await asyncio.sleep(30)
     finally:
         scheduler.shutdown(wait=False)
+        # Штатная остановка: если следом выключают хост, при следующем
+        # запуске это не сойдёт за пропавший свет
+        try:
+            await asyncio.to_thread(metrics.beat, True)
+        except Exception:
+            log.exception("Не удалось отметить штатную остановку")
         await bot.session.close()
 
 

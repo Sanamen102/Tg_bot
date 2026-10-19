@@ -24,6 +24,12 @@ def _connect() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS smart_baseline ("
         "device TEXT, attr TEXT, value INTEGER, PRIMARY KEY (device, attr))"
     )
+    # Одна строка: когда бот последний раз отмечался живым и была ли после
+    # этого штатная остановка. По ней считается простой после загрузки.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS heartbeat ("
+        "id INTEGER PRIMARY KEY CHECK (id = 1), ts INTEGER, clean INTEGER)"
+    )
     return conn
 
 
@@ -74,6 +80,29 @@ def fetch(since_ts: int) -> list[tuple[int, float, float, float | None]]:
             (since_ts,),
         )
         return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def beat(clean: bool = False) -> None:
+    """Отметить, что сервер жив; clean=True — бот останавливают штатно."""
+    conn = _connect()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO heartbeat (id, ts, clean) VALUES (1, ?, ?)",
+                (int(time.time()), int(clean)),
+            )
+    finally:
+        conn.close()
+
+
+def last_beat() -> tuple[int, bool] | None:
+    """Последняя отметка «жив» и была ли следом штатная остановка."""
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT ts, clean FROM heartbeat WHERE id = 1").fetchone()
+        return (row[0], bool(row[1])) if row else None
     finally:
         conn.close()
 
