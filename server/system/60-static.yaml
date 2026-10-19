@@ -11,5 +11,7 @@ network:
       routes:
         - to: default
           via: 192.168.101.1
+      # DNS — AdGuard на этом же сервере, он ходит через DoH. Не 1.1.1.1 и не 8.8.8.8:
+      # провайдер подменяет их ответы (youtube.com получал NXDOMAIN). Роутер — запасной.
       nameservers:
-        addresses: [192.168.101.1, 1.1.1.1]
+        addresses: [192.168.101.7, 192.168.101.1]
