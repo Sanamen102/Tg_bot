@@ -1,0 +1,13 @@
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [{
+    "tag": "from-mita",
+    "listen": "127.0.0.1", "port": 40001, "protocol": "socks",
+    "settings": {"auth": "noauth", "udp": false}
+  }],
+  "outbounds": [{
+    "tag": "warp",
+    "protocol": "socks",
+    "settings": {"servers": [{"address": "127.0.0.1", "port": 40000}]}
+  }]
+}

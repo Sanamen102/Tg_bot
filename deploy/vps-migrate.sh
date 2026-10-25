@@ -191,8 +191,21 @@ else
 fi
 for f in mieru-server.json mieru-meta.json; do
     [ -s "$SRC_DIR/$f" ] || die "нет $f в $SRC_DIR"
-    rsh "umask 077 && cat > /root/$f.tmp && mv /root/$f.tmp /root/$f" < "$SRC_DIR/$f"
 done
+# Секция egress (Telegram DC5 через WARP, см. warp-relay/README.md) держится
+# на WARP и посреднике, которых на чистом сервере нет: с ней DC5 ушёл бы в
+# пустоту, хотя у другого хостера он может открываться и напрямую.
+EGRESS=$(python3 - "$SRC_DIR/mieru-server.json" "$TMP/server-upload.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+had = bool(c.pop("egress", None))
+json.dump(c, open(sys.argv[2], "w"), indent=2, ensure_ascii=False)
+print("yes" if had else "")
+PY
+) || die "не разобрать mieru-server.json"
+[ -n "$EGRESS" ] && warn "правило «Telegram DC5 через WARP» не перенесено — проверьте DC5 на новом сервере (deploy/warp-relay/README.md)"
+rsh "umask 077 && cat > /root/mieru-server.json.tmp && mv /root/mieru-server.json.tmp /root/mieru-server.json" < "$TMP/server-upload.json"
+rsh "umask 077 && cat > /root/mieru-meta.json.tmp && mv /root/mieru-meta.json.tmp /root/mieru-meta.json" < "$SRC_DIR/mieru-meta.json"
 read -r USERS LO HI < <(python3 - "$SRC_DIR/mieru-server.json" <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
